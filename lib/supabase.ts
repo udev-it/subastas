@@ -638,4 +638,501 @@ export async function getLatestTerms() {
   }
 }
 
+// ==================== FUNCIONES DE SUBASTAS ====================
+
+export async function fetchAuctionById(auctionId: string): Promise<Auction | null> {
+  try {
+    if (!supabase) {
+      throw new Error("Supabase client is not initialized. Check your environment variables.")
+    }
+    if (!areCredentialsAvailable()) {
+      console.log("Usando datos de demostración para fetchAuctionById")
+      return null
+    }
+
+    if (!isUuid(auctionId)) {
+      console.error("El ID de la subasta no es un UUID válido.")
+      return null
+    }
+
+    const { data: subastaData, error: subastaError } = await supabase
+      .from("subasta")
+      .select("*")
+      .eq("id_subasta", auctionId.trim())
+      .single()
+
+    if (subastaError) {
+      console.error("Error en la consulta a la tabla subasta:", subastaError)
+      return null
+    }
+
+    if (!subastaData) {
+      console.log("No se encontró la subasta con ID:", auctionId)
+      return null
+    }
+
+    const { data: vehiculoData, error: vehiculoError } = await supabase
+      .from("vehiculo")
+      .select("*")
+      .eq("ficha", subastaData.ficha)
+      .single()
+
+    if (vehiculoError && vehiculoError.code !== "PGRST116") {
+      console.error("Error en la consulta a la tabla vehiculo:", vehiculoError)
+    }
+
+    return {
+      id_subasta: subastaData.id_subasta,
+      titulo: subastaData.titulo,
+      descripcion: subastaData.descripcion,
+      estado: subastaData.estado,
+      inicio: subastaData.inicio,
+      fin: subastaData.fin,
+      precio_base: subastaData.precio_base,
+      monto_minimo_puja: subastaData.monto_minimo_puja,
+      cantidad_max_participantes: subastaData.cantidad_max_participantes,
+      cantidad_participantes: subastaData.cantidad_participantes,
+      vehicleDetails: vehiculoData
+        ? {
+            ficha: vehiculoData.ficha,
+            anio: vehiculoData.anio,
+            modelo: vehiculoData.modelo,
+            descripcion: vehiculoData.descripcion,
+            imagen_url: vehiculoData.imagen_url,
+          }
+        : undefined,
+    }
+  } catch (error: any) {
+    console.error("Error al buscar la subasta:", error?.message)
+    return null
+  }
+}
+
+export async function fetchAvailableAuctions(filters?: AuctionFilters): Promise<Auction[]> {
+  try {
+    if (!supabase) {
+      throw new Error("Supabase client is not initialized. Check your environment variables.")
+    }
+
+    let query = supabase
+      .from("subasta")
+      .select("*")
+      .or("estado.eq.Publicada,estado.eq.publicada")
+
+    if (filters?.startDate) {
+      const startDate = new Date(filters.startDate)
+      const startDateStr = startDate.toISOString().split('T')[0]
+      query = query
+        .gte('inicio', `${startDateStr}T00:00:00`)
+        .lt('inicio', `${startDateStr}T23:59:59.999`)
+    }
+
+    if (filters?.endDate) {
+      const endDate = new Date(filters.endDate)
+      const endDateStr = endDate.toISOString().split('T')[0]
+      query = query
+        .gte('fin', `${endDateStr}T00:00:00`)
+        .lt('fin', `${endDateStr}T23:59:59.999`)
+    }
+
+    query = query.order("inicio", { ascending: false })
+
+    const { data: subastasData, error: subastasError } = await query
+    
+    if (subastasError) {
+      console.error("Error en la consulta a la tabla subasta:", subastasError)
+      throw new Error(`Error al obtener subastas: ${subastasError.message}`)
+    }
+
+    if (!subastasData || subastasData.length === 0) {
+      console.log("No se encontraron subastas disponibles")
+      return []
+    }
+
+    const fichas = subastasData.map((subasta) => subasta.ficha).filter((ficha) => ficha)
+
+    let vehiculosData: any[] = []
+
+    if (fichas.length > 0) {
+      const { data: vehiculosResult, error: vehiculosError } = await supabase
+        .from("vehiculo")
+        .select("*")
+        .in("ficha", fichas)
+
+      if (vehiculosError) {
+        console.error("Error en la consulta a la tabla vehiculo:", vehiculosError)
+      } else {
+        vehiculosData = vehiculosResult || []
+      }
+    }
+
+    const vehiculosPorFicha = vehiculosData.reduce(
+      (map, vehiculo) => {
+        map[vehiculo.ficha] = vehiculo
+        return map
+      },
+      {} as Record<string, any>,
+    )
+
+    const auctions = subastasData.map((subasta) => {
+      const vehiculo = vehiculosPorFicha[subasta.ficha]
+      return {
+        id_subasta: subasta.id_subasta,
+        titulo: subasta.titulo,
+        descripcion: subasta.descripcion,
+        estado: subasta.estado || "Publicada",
+        inicio: subasta.inicio,
+        fin: subasta.fin,
+        precio_base: subasta.precio_base,
+        monto_minimo_puja: subasta.monto_minimo_puja,
+        cantidad_max_participantes: subasta.cantidad_max_participantes,
+        cantidad_participantes: subasta.cantidad_participantes,
+        vehicleDetails: vehiculo
+          ? {
+              ficha: vehiculo.ficha,
+              anio: vehiculo.anio,
+              modelo: vehiculo.modelo,
+              descripcion: vehiculo.descripcion,
+              imagen_url: vehiculo.imagen_url,
+            }
+          : undefined,
+      }
+    })
+
+    if (filters) {
+      return filterAuctionsByDateRange(auctions, filters)
+    }
+
+    return auctions
+  } catch (error: any) {
+    console.error("Error al obtener las subastas disponibles:", error?.message)
+    throw error
+  }
+}
+
+export async function fetchAllVehicles(): Promise<VehicleDetails[]> {
+  try {
+    if (!supabase) {
+      throw new Error("Supabase client is not initialized. Check your environment variables.")
+    }
+    if (!areCredentialsAvailable()) {
+      return []
+    }
+
+    const { data: vehiculosData, error: vehiculosError } = await supabase.from("vehiculo").select("*")
+
+    if (vehiculosError) {
+      throw new Error(`Error al obtener vehículos: ${vehiculosError.message}`)
+    }
+
+    return vehiculosData || []
+  } catch (error: any) {
+    console.error("Error al obtener vehículos:", error?.message)
+    throw error
+  }
+}
+
+export async function registerParticipation(
+  userId: string,
+  auctionId: string
+): Promise<{ success: boolean; postorId?: string; error?: string }> {
+  try {
+    if (!supabase) {
+      throw new Error("Supabase client is not initialized. Check your environment variables.")
+    }
+
+    const { data: postorData, error: postorError } = await supabase
+      .from('postor')
+      .select('id_postor')
+      .eq('id_usuario', userId)
+      .single()
+
+    if (postorError || !postorData) {
+      throw new Error("No se encontró el postor asociado a este usuario")
+    }
+
+    const idPostor = postorData.id_postor
+
+    const { data: existing } = await supabase
+      .from('participa')
+      .select('id_postor')
+      .eq('id_postor', idPostor)
+      .eq('id_subasta', auctionId)
+      .single()
+
+    if (existing) {
+      return { success: false, error: "Ya estás participando en esta subasta" }
+    }
+
+    const { data: auctionData, error: auctionError } = await supabase
+      .from('subasta')
+      .select('cantidad_participantes, cantidad_max_participantes, estado')
+      .eq('id_subasta', auctionId)
+      .single()
+
+    if (auctionError || !auctionData) {
+      throw new Error("No se pudo obtener información de la subasta")
+    }
+
+    if (auctionData.cantidad_participantes >= auctionData.cantidad_max_participantes) {
+      return { 
+        success: false, 
+        error: "Esta subasta ya ha alcanzado el límite máximo de participantes" 
+      }
+    }
+
+    if(auctionData.estado !== "Publicada") {
+      return {
+        success: false,
+        error: "No puedes participar en esta subasta porque no está activa"
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('participa')
+      .insert([{ 
+        id_postor: idPostor,
+        id_subasta: auctionId,
+      }])
+      .select()
+
+    if (error) {
+      throw error
+    }
+
+    const { error: updateError } = await supabase
+      .from('subasta')
+      .update({ 
+        cantidad_participantes: auctionData.cantidad_participantes + 1,
+        estado: auctionData.cantidad_participantes + 1 >= auctionData.cantidad_max_participantes 
+          ? "Completada" 
+          : auctionData.estado
+      })
+      .eq('id_subasta', auctionId)
+
+    if (updateError) {
+      throw updateError
+    }
+
+    return { 
+      success: true,
+      postorId: idPostor
+    }
+  } catch (error: any) {
+    console.error("Error en registerParticipation:", error)
+    return {
+      success: false,
+      error: error.message || "Error al registrar participación"
+    }
+  }
+}
+
+export async function getAuctionById(auctionId: string) {
+  if (!supabase) {
+    throw new Error("Supabase no está inicializado.")
+  }
+
+  try {
+    console.log("Iniciando consulta para obtener subasta con ID:", auctionId)
+    
+    const { data, error } = await supabase
+      .from("subasta")
+      .select(`
+        id_subasta,
+        titulo,
+        descripcion,
+        estado,
+        inicio,
+        fin,
+        precio_base,
+        monto_minimo_puja,
+        cantidad_max_participantes,
+        cantidad_participantes,
+        ficha,
+        vehiculo:vehiculo(*)
+      `)
+      .eq("id_subasta", auctionId)
+      .single()
+
+    if (error) {
+      console.error("Error al obtener subasta:", error)
+      throw new Error("Error al obtener subasta: " + error.message)
+    }
+
+    if (!data) {
+      console.error("No se encontró la subasta con ID:", auctionId)
+      return null
+    }
+
+    console.log("Datos obtenidos de la base de datos:", data)
+
+    // Transformar los datos para que coincidan con la estructura esperada
+    return {
+      id_subasta: data.id_subasta,
+      titulo: data.titulo,
+      descripcion: data.descripcion,
+      estado: data.estado,
+      inicio: data.inicio,
+      fin: data.fin,
+      precio_base: data.precio_base,
+      monto_minimo_puja: data.monto_minimo_puja,
+      cantidad_max_participantes: data.cantidad_max_participantes,
+      cantidad_participantes: data.cantidad_participantes,
+      vehiculo: data.vehiculo || {
+        ficha: "",
+        anio: 0,
+        modelo: "No especificado",
+        descripcion: "Sin descripción",
+        imagen_url: "/placeholder.svg"
+      }
+    }
+  } catch (err) {
+    console.error("Error inesperado al obtener subasta:", err)
+    throw new Error("Error inesperado al obtener la subasta")
+  }
+}
+
+export async function checkParticipation(auctionId: string, userId: string): Promise<boolean> {
+  if (!supabase) {
+    throw new Error("Supabase no está inicializado.")
+  }
+
+  try {
+    // Primero obtener el id_postor del usuario
+    const { data: postorData, error: postorError } = await supabase
+      .from('postor')
+      .select('id_postor')
+      .eq('id_usuario', userId)
+      .single()
+
+    if (postorError || !postorData) {
+      console.error("Error al obtener id_postor:", postorError)
+      return false
+    }
+
+    console.log("ID del postor obtenido:", postorData.id_postor)
+    console.log("Verificando participación para subasta:", auctionId)
+
+    // Luego verificar la participación usando el id_postor
+    const { data: participaData, error: participaError } = await supabase
+      .from('participa')
+      .select('id_postor')
+      .eq('id_postor', postorData.id_postor)
+      .eq('id_subasta', auctionId)
+      .maybeSingle()
+
+    if (participaError) {
+      console.error("Error al verificar participación:", participaError)
+      return false
+    }
+
+    const isParticipating = !!participaData
+    console.log("¿Está participando?:", isParticipating)
+    return isParticipating
+
+  } catch (error) {
+    console.error("Error en checkParticipation:", error)
+    return false
+  }
+}
+
+// ==================== FUNCIONES AUXILIARES ====================
+
+export function areCredentialsAvailable(): boolean {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  return Boolean(supabaseUrl && supabaseAnonKey)
+}
+
+export function isUuid(str: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  return uuidRegex.test(str)
+}
+
+function filterAuctionsByDateRange(auctions: Auction[], filters: AuctionFilters): Auction[] {
+  try {
+    if (!filters?.startDate && !filters?.endDate) return auctions
+
+    const normalizeDate = (dateStr: string): Date => {
+      const [year, month, day] = dateStr.split('-').map(Number)
+      return new Date(Date.UTC(year, month - 1, day))
+    }
+
+    return auctions.filter((auction) => {
+      try {
+        const auctionStart = new Date(auction.inicio)
+        const auctionEnd = new Date(auction.fin)
+
+        if (isNaN(auctionStart.getTime()) || isNaN(auctionEnd.getTime())) {
+          console.warn('Fechas inválidas en subasta:', auction.inicio, auction.fin)
+          return false
+        }
+
+        const normalizedAuctionStart = new Date(Date.UTC(
+          auctionStart.getFullYear(),
+          auctionStart.getMonth(),
+          auctionStart.getDate()
+        ))
+        
+        const normalizedAuctionEnd = new Date(Date.UTC(
+          auctionEnd.getFullYear(),
+          auctionEnd.getMonth(),
+          auctionEnd.getDate()
+        ))
+
+        const normalizedFilterStart = filters.startDate 
+          ? normalizeDate(filters.startDate)
+          : null
+          
+        const normalizedFilterEnd = filters.endDate
+          ? normalizeDate(filters.endDate)
+          : null
+
+        const startMatch = !normalizedFilterStart || 
+          normalizedAuctionStart >= normalizedFilterStart
+          
+        const endMatch = !normalizedFilterEnd || 
+          normalizedAuctionEnd <= normalizedFilterEnd
+
+        return startMatch && endMatch
+      } catch (error) {
+        console.error("Error filtrando subasta:", auction, error)
+        return false
+      }
+    })
+  } catch (error) {
+    console.error("Error crítico en filterAuctionsByDateRange:", error)
+    return []
+  }
+}
+
+// ==================== INTERFACES Y TIPOS ====================
+
+export interface VehicleDetails {
+  ficha: string
+  anio: number
+  modelo: string
+  descripcion: string
+  imagen_url: string
+}
+
+export interface Auction {
+  id_subasta: string
+  titulo: string
+  descripcion: string
+  estado: "Publicada" | "Activa" | "Finalizada" | "Completada"
+  inicio: string
+  fin: string
+  precio_base: number
+  monto_minimo_puja: number
+  cantidad_max_participantes: number
+  cantidad_participantes: number
+  vehicleDetails?: VehicleDetails
+}
+
+export interface AuctionFilters {
+  startDate?: string
+  endDate?: string
+}
+
 export default supabase
