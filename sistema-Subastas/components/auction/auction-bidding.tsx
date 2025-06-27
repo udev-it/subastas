@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { ArrowLeft, Clock, DollarSign, Users, Car, Award, Calendar, Loader2 } from "lucide-react"
 import Image from "next/image"
-import { getAuctionById, checkParticipation } from "@/lib/supabase" //, registerBid
+import { getAuctionById, checkParticipation } from "@/lib/supabase"
 import { useAuth } from "@/hooks/use-auth"
 
 interface Auction {
@@ -62,7 +62,7 @@ interface Bid {
   }
 }
 
-export default function AuctionBidding({ auctionId, onBack }: { auctionId: string, onBack: () => void }) {
+export default function AuctionBidding({ auctionId, onBack }: { auctionId: string; onBack: () => void }) {
   const { user } = useAuth()
   const [auction, setAuction] = useState<Auction | null>(null)
   const [loading, setLoading] = useState(true)
@@ -87,21 +87,21 @@ export default function AuctionBidding({ auctionId, onBack }: { auctionId: strin
     const loadAuction = async () => {
       try {
         setLoading(true)
-        
+
         // Verificar participación del usuario
         if (user?.id) {
           const participating = await checkParticipation(auctionId, user.id)
           setIsParticipating(participating)
         }
 
-        const data = await getAuctionById(auctionId) as AuctionResponse | null
+        const data = (await getAuctionById(auctionId)) as AuctionResponse | null
         if (!data) {
           setError("Subasta no encontrada")
           return
         }
 
         // Verificar que los datos del vehículo existen y tienen la estructura esperada
-        if (!data.vehiculo || typeof data.vehiculo !== 'object') {
+        if (!data.vehiculo || typeof data.vehiculo !== "object") {
           setError("Error: Datos del vehículo no disponibles")
           return
         }
@@ -118,17 +118,16 @@ export default function AuctionBidding({ auctionId, onBack }: { auctionId: strin
           maxParticipants: data.cantidad_max_participantes,
           status: data.estado,
           vehiculo: {
-            ficha: data.vehiculo.ficha || '',
+            ficha: data.vehiculo.ficha || "",
             anio: data.vehiculo.anio || 0,
-            modelo: data.vehiculo.modelo || 'No especificado',
-            descripcion: data.vehiculo.descripcion || 'Sin descripción',
-            imagen_url: data.vehiculo.imagen_url || '/placeholder.svg'
-          }
+            modelo: data.vehiculo.modelo || "No especificado",
+            descripcion: data.vehiculo.descripcion || "Sin descripción",
+            imagen_url: data.vehiculo.imagen_url || "/placeholder.svg",
+          },
         }
-        
+
         setAuction(normalizedAuction)
         setCurrentBid(data.monto_minimo_puja)
-
       } catch (err) {
         console.error("Error cargando subasta:", err)
         setError("Error al cargar la subasta")
@@ -245,7 +244,7 @@ export default function AuctionBidding({ auctionId, onBack }: { auctionId: strin
               <div className="relative h-64 w-full rounded-md overflow-hidden">
                 <Image
                   src={auction?.vehiculo.imagen_url || "/placeholder.svg"}
-                  alt={`${auction?.vehiculo.anio || ''} ${auction?.vehiculo.modelo || 'Vehículo'}`}
+                  alt={`${auction?.vehiculo.anio || ""} ${auction?.vehiculo.modelo || "Vehículo"}`}
                   fill
                   className="object-cover"
                   sizes="(max-width: 768px) 100vw, 50vw"
@@ -262,9 +261,7 @@ export default function AuctionBidding({ auctionId, onBack }: { auctionId: strin
                   <div className="space-y-3 text-sm">
                     <div className="flex items-center justify-between p-2 bg-muted/50 rounded">
                       <span className="font-medium">Estado:</span>
-                      <Badge variant={auction.status === "Activa" ? "default" : "secondary"}>
-                        {auction.status}
-                      </Badge>
+                      <Badge variant={auction.status === "Activa" ? "default" : "secondary"}>{auction.status}</Badge>
                     </div>
 
                     <div className="flex items-center justify-between p-2 bg-muted/50 rounded">
@@ -293,23 +290,17 @@ export default function AuctionBidding({ auctionId, onBack }: { auctionId: strin
 
                     <div className="flex items-center justify-between p-2 bg-muted/50 rounded">
                       <span className="font-medium">Precio base:</span>
-                      <span className="font-semibold text-green-600">
-                        {auction.basePrice}
-                      </span>
+                      <span className="font-semibold text-green-600">{auction.basePrice}</span>
                     </div>
 
                     <div className="flex items-center justify-between p-2 bg-muted/50 rounded">
                       <span className="font-medium">Puja mínima:</span>
-                      <span className="font-semibold text-blue-600">
-                        {auction.minimumBidAmount}
-                      </span>
+                      <span className="font-semibold text-blue-600">{auction.minimumBidAmount}</span>
                     </div>
 
                     <div className="flex items-center justify-between p-2 bg-muted/50 rounded">
                       <span className="font-medium">Puja actual:</span>
-                      <span className="font-bold text-primary text-lg">
-                        ${currentBid.toFixed(2)}
-                      </span>
+                      <span className="font-bold text-primary text-lg">${currentBid.toFixed(2)}</span>
                     </div>
 
                     <div className="flex items-center justify-between p-2 bg-muted/50 rounded">
@@ -323,7 +314,7 @@ export default function AuctionBidding({ auctionId, onBack }: { auctionId: strin
                           <div
                             className="bg-primary h-2 rounded-full transition-all duration-300"
                             style={{
-                              width: `${(auction.participants / auction.maxParticipants) * 100}%`
+                              width: `${(auction.participants / auction.maxParticipants) * 100}%`,
                             }}
                           />
                         </div>
@@ -341,18 +332,18 @@ export default function AuctionBidding({ auctionId, onBack }: { auctionId: strin
                   <div className="space-y-3 text-sm">
                     <div className="flex items-center justify-between p-2 bg-muted/50 rounded">
                       <span className="font-medium">Año:</span>
-                      <span className="font-semibold">{auction?.vehiculo.anio || 'No especificado'}</span>
+                      <span className="font-semibold">{auction?.vehiculo.anio || "No especificado"}</span>
                     </div>
 
                     <div className="flex items-center justify-between p-2 bg-muted/50 rounded">
                       <span className="font-medium">Modelo:</span>
-                      <span className="font-semibold">{auction?.vehiculo.modelo || 'No especificado'}</span>
+                      <span className="font-semibold">{auction?.vehiculo.modelo || "No especificado"}</span>
                     </div>
 
                     <div className="p-2 bg-muted/50 rounded">
                       <span className="font-medium block mb-2">Descripción:</span>
                       <p className="text-muted-foreground leading-relaxed">
-                        {auction?.vehiculo.descripcion || 'Sin descripción disponible'}
+                        {auction?.vehiculo.descripcion || "Sin descripción disponible"}
                       </p>
                     </div>
                   </div>
@@ -374,9 +365,7 @@ export default function AuctionBidding({ auctionId, onBack }: { auctionId: strin
                 {isHighestBidder && (
                   <div className="bg-green-100 dark:bg-green-900/30 p-3 rounded-md mb-4 flex items-center">
                     <Award className="h-5 w-5 text-green-600 dark:text-green-400 mr-2" />
-                    <p className="text-green-600 dark:text-green-400 text-sm font-medium">
-                      ¡Tienes la puja más alta!
-                    </p>
+                    <p className="text-green-600 dark:text-green-400 text-sm font-medium">¡Tienes la puja más alta!</p>
                   </div>
                 )}
 
@@ -391,12 +380,8 @@ export default function AuctionBidding({ auctionId, onBack }: { auctionId: strin
                 <div className="space-y-4">
                   <div className="bg-muted/50 p-3 rounded-md">
                     <p className="text-sm font-medium mb-1">Puja actual</p>
-                    <p className="text-2xl font-bold text-primary">
-                      ${currentBid.toFixed(2)}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      La puja mínima debe ser mayor a la puja actual
-                    </p>
+                    <p className="text-2xl font-bold text-primary">${currentBid.toFixed(2)}</p>
+                    <p className="text-xs text-muted-foreground mt-1">La puja mínima debe ser mayor a la puja actual</p>
                   </div>
 
                   <div className="flex space-x-2">
@@ -413,43 +398,37 @@ export default function AuctionBidding({ auctionId, onBack }: { auctionId: strin
                         disabled={!isParticipating}
                       />
                     </div>
-                    <Button 
-                      onClick={handleBid} 
-                      className="px-6"
-                      disabled={!isParticipating}
-                    >
+                    <Button onClick={handleBid} className="px-6" disabled={!isParticipating}>
                       Pujar
                     </Button>
                   </div>
 
                   {errorMessage && (
                     <div className="bg-red-100 dark:bg-red-900/30 p-2 rounded-md">
-                      <p className="text-red-600 dark:text-red-400 text-xs">
-                        {errorMessage}
-                      </p>
+                      <p className="text-red-600 dark:text-red-400 text-xs">{errorMessage}</p>
                     </div>
                   )}
 
                   <div className="grid grid-cols-3 gap-2">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() => setUserBid((currentBid + 100).toString())}
                       disabled={!isParticipating}
                     >
                       +$100
                     </Button>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() => setUserBid((currentBid + 250).toString())}
                       disabled={!isParticipating}
                     >
                       +$250
                     </Button>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() => setUserBid((currentBid + 500).toString())}
                       disabled={!isParticipating}
                     >
@@ -471,30 +450,22 @@ export default function AuctionBidding({ auctionId, onBack }: { auctionId: strin
                       <div
                         key={bid.id}
                         className={`flex justify-between items-center p-3 rounded-md border-l-4 ${
-                          bid.postor.usuario.nombre === "Tú" 
-                            ? "bg-primary/10 border-l-primary" 
+                          bid.postor.usuario.nombre === "Tú"
+                            ? "bg-primary/10 border-l-primary"
                             : "bg-muted/50 border-l-muted"
                         }`}
                       >
                         <div>
-                          <p className={`font-medium ${
-                            bid.postor.usuario.nombre === "Tú" ? "text-primary" : ""
-                          }`}>
+                          <p className={`font-medium ${bid.postor.usuario.nombre === "Tú" ? "text-primary" : ""}`}>
                             {bid.postor.usuario.nombre} {bid.postor.usuario.primer_apellido}
                           </p>
-                          <p className="text-xs text-muted-foreground">
-                            {new Date(bid.fecha).toLocaleString()}
-                          </p>
+                          <p className="text-xs text-muted-foreground">{new Date(bid.fecha).toLocaleString()}</p>
                         </div>
-                        <p className="font-bold text-lg">
-                          ${bid.monto.toFixed(2)}
-                        </p>
+                        <p className="font-bold text-lg">${bid.monto.toFixed(2)}</p>
                       </div>
                     ))
                   ) : (
-                    <p className="text-muted-foreground text-center py-4">
-                      No hay pujas registradas
-                    </p>
+                    <p className="text-muted-foreground text-center py-4">No hay pujas registradas</p>
                   )}
                 </div>
               </CardContent>
