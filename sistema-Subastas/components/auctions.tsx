@@ -6,9 +6,16 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Calendar, DollarSign, Users, X, Eye, Loader2, AlertCircle, RefreshCw } from "lucide-react"
+import { Calendar, DollarSign, Users, X, Eye, Loader2, AlertCircle, RefreshCw, AlertTriangle } from "lucide-react"
 import Image from "next/image"
-import { fetchAvailableAuctions, type Auction as SupabaseAuction, type AuctionFilters } from "@/lib/supabase"
+import {
+  fetchAvailableAuctions,
+  registerParticipation,
+  checkParticipation,
+  type Auction as SupabaseAuction,
+  type AuctionFilters,
+} from "@/lib/supabase"
+import { useAuth } from "@/hooks/use-auth"
 
 // Interfaz para el formato de datos que usa el componente (manteniendo el diseño original)
 interface Auction {
@@ -43,6 +50,7 @@ interface AuctionsProps {
 export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps) {
   const [selectedAuction, setSelectedAuction] = useState<Auction | null>(null)
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false)
+  const [isAlreadyParticipatingModalOpen, setIsAlreadyParticipatingModalOpen] = useState(false)
 
   // Estados para el filtro de fechas
   const [startDateFilter, setStartDateFilter] = useState("")
@@ -52,6 +60,9 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
   const [auctions, setAuctions] = useState<Auction[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const { user } = useAuth()
+  const [participationLoading, setParticipationLoading] = useState<string | null>(null)
 
   // Función para manejar cambios en las fechas de filtro
   const handleDateChange = (type: "start" | "end", value: string) => {
@@ -164,9 +175,7 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
       console.log("Enviando filtros:", filters)
 
       const supabaseAuctions = await fetchAvailableAuctions(filters)
-      //console.log("Datos crudos de Supabase:", supabaseAuctions);
       const convertedAuctions = supabaseAuctions.map(convertToDisplayFormat)
-      //console.log("Datos convertidos:", convertedAuctions);
 
       console.log("Datos ANTES de setAuctions:", {
         supabaseAuctions,
@@ -193,23 +202,6 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
     loadAuctions()
   }, [startDateFilter, endDateFilter])
 
-  // Función para convertir fecha de formato DD/MM/YYYY HH:MM a Date
-  const parseDate = (dateString: string): Date => {
-    try {
-      // Formato esperado: "DD/MM/YYYY, HH:MM"
-      const [datePart] = dateString.split(", ")
-      const [day, month, year] = datePart.split("/").map(Number)
-      return new Date(year, month - 1, day)
-    } catch {
-      return new Date()
-    }
-  }
-
-  // Función para convertir fecha de formato YYYY-MM-DD a Date
-  const parseInputDate = (dateString: string): Date => {
-    return new Date(dateString)
-  }
-
   // Función para limpiar filtros
   const clearFilters = () => {
     setStartDateFilter("")
@@ -222,16 +214,67 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
     onViewDetails(auction)
   }
 
-  const handleParticipate = (auction: Auction) => {
-    setSelectedAuction(auction)
-    setIsConfirmModalOpen(true)
+  const handleParticipate = async (auction: Auction) => {
+    if (!user?.id) {
+      alert("Debes iniciar sesión para participar")
+      return
+    }
+
+    // Verificar si ya está participando
+    try {
+      const isParticipating = await checkParticipation(auction.id, user.id)
+
+      if (isParticipating) {
+        // Mostrar modal de "ya está participando"
+        setSelectedAuction(auction)
+        setIsAlreadyParticipatingModalOpen(true)
+      } else {
+        // Mostrar modal de confirmación
+        setSelectedAuction(auction)
+        setIsConfirmModalOpen(true)
+      }
+    } catch (error) {
+      console.error("Error al verificar participación:", error)
+      alert("Error al verificar participación")
+    }
   }
 
-  const confirmParticipation = () => {
-    if (selectedAuction) {
+  const confirmParticipation = async () => {
+    if (selectedAuction && user?.id) {
       setIsConfirmModalOpen(false)
+      setParticipationLoading(selectedAuction.id)
+
+      try {
+        const result = await registerParticipation(user.id, selectedAuction.id)
+
+        if (result.success) {
+          alert("¡Te has registrado exitosamente en la subasta!")
+          // Recargar las subastas para actualizar el contador de participantes
+          loadAuctions()
+          // Llamar a onParticipate para navegar a la interfaz de pujas
+          onParticipate(selectedAuction)
+        } else {
+          alert(result.error || "Error al registrar participación")
+        }
+      } catch (error) {
+        console.error("Error al participar:", error)
+        alert("Error al registrar participación")
+      } finally {
+        setParticipationLoading(null)
+      }
+    }
+  }
+
+  const goToBidding = () => {
+    if (selectedAuction) {
+      setIsAlreadyParticipatingModalOpen(false)
       onParticipate(selectedAuction)
     }
+  }
+
+  const backToAuctions = () => {
+    setIsAlreadyParticipatingModalOpen(false)
+    setSelectedAuction(null)
   }
 
   // Función para reintentar la carga
@@ -310,7 +353,7 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
                     <strong>Filtros activos:</strong>
                     {startDateFilter && ` Desde: ${startDateFilter}`}
                     {endDateFilter && ` Hasta: ${endDateFilter}`}
-                    {` • Mostrando ${auctions.length} de ${auctions.length} subastas`} {/* Cambiado */}
+                    {` • Mostrando ${auctions.length} de ${auctions.length} subastas`}
                   </p>
                 </div>
               )}
@@ -376,8 +419,19 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
                         <Button variant="outline" onClick={() => handleViewDetails(auction)} className="flex-1">
                           <Eye className="mr-2 h-4 w-4" /> Ver detalles
                         </Button>
-                        <Button onClick={() => handleParticipate(auction)} className="flex-1">
-                          Participar
+                        <Button
+                          onClick={() => handleParticipate(auction)}
+                          className="flex-1"
+                          disabled={participationLoading === auction.id}
+                        >
+                          {participationLoading === auction.id ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Participando...
+                            </>
+                          ) : (
+                            "Participar"
+                          )}
                         </Button>
                       </div>
                     </CardContent>
@@ -398,27 +452,65 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
         </div>
       </div>
 
-      {/* Modal de confirmación para participar */}
+      {/* Modal de confirmación para participar (usuario no está participando) */}
       <Dialog open={isConfirmModalOpen} onOpenChange={setIsConfirmModalOpen}>
         {selectedAuction && (
           <DialogContent className="sm:max-w-[500px]">
             <DialogHeader>
-              <DialogTitle>Confirmar participación</DialogTitle>
+              <DialogTitle className="text-xl font-semibold">Confirmar participación</DialogTitle>
             </DialogHeader>
-            <div className="py-4">
-              <p>
+            <div className="py-4 space-y-4">
+              <p className="text-base">
                 ¿Está seguro que desea participar en la subasta <strong>{selectedAuction.title}</strong>?
               </p>
-              <p className="text-sm text-muted-foreground mt-2">
+              <p className="text-sm text-muted-foreground">
                 Al confirmar, usted acepta las reglas de la subasta y se compromete a pagar el monto de su puja en caso
                 de ganar.
               </p>
             </div>
-            <DialogFooter className="flex flex-col sm:flex-row gap-2">
-              <Button variant="outline" onClick={() => setIsConfirmModalOpen(false)} className="sm:order-first">
+            <DialogFooter className="flex flex-row gap-3 justify-end">
+              <Button variant="outline" onClick={() => setIsConfirmModalOpen(false)} className="px-6">
                 Cancelar
               </Button>
-              <Button onClick={confirmParticipation}>Confirmar participación</Button>
+              <Button onClick={confirmParticipation} className="px-6 bg-red-600 hover:bg-red-700 text-white">
+                Confirmar participación
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
+
+      {/* Modal para cuando ya está participando */}
+      <Dialog open={isAlreadyParticipatingModalOpen} onOpenChange={setIsAlreadyParticipatingModalOpen}>
+        {selectedAuction && (
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-semibold flex items-center gap-2">
+                <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center">
+                  <AlertTriangle className="h-5 w-5 text-yellow-600" />
+                </div>
+                Ya estás participando
+              </DialogTitle>
+            </DialogHeader>
+            <div className="py-4 space-y-4">
+              <p className="text-base">
+                Ya estás registrado en la subasta: <strong>{selectedAuction.title}</strong>
+              </p>
+              <div className="space-y-2">
+                <p className="font-medium">¿Qué deseas hacer?</p>
+                <ul className="space-y-1 text-sm text-muted-foreground ml-4">
+                  <li>• Puedes ir directamente a pujar</li>
+                  <li>• O volver a la lista de subastas</li>
+                </ul>
+              </div>
+            </div>
+            <DialogFooter className="flex flex-row gap-3 justify-end">
+              <Button variant="outline" onClick={backToAuctions} className="px-6 bg-transparent">
+                Volver a subastas
+              </Button>
+              <Button onClick={goToBidding} className="px-6 bg-red-600 hover:bg-red-700 text-white">
+                Ir a pujar
+              </Button>
             </DialogFooter>
           </DialogContent>
         )}
@@ -426,4 +518,3 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
     </section>
   )
 }
-

@@ -1,45 +1,64 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 
-// Verificar si estamos en el navegador
-const isBrowser = typeof window !== "undefined"
-
-// Obtener las variables de entorno
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-// Verificar que las variables de entorno estén definidas
-if (!supabaseUrl || !supabaseAnonKey) {
-  if (isBrowser) {
-    console.error(
-      "Supabase credentials are missing. Make sure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in your .env.local file.",
-    )
-  }
-}
-
-// Crear una instancia única del cliente de Supabase
+// Variable global para almacenar la instancia única del cliente
 let supabaseInstance: SupabaseClient | null = null
 
+export function areCredentialsAvailable(): boolean {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  return Boolean(supabaseUrl && supabaseAnonKey)
+}
+
+export function isUuid(str: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  return uuidRegex.test(str)
+}
+
+/**
+ * Crea y devuelve una instancia única del cliente de Supabase
+ */
 export const supabase = (() => {
-  if (!supabaseInstance && supabaseUrl && supabaseAnonKey) {
-    supabaseInstance = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-      },
-    })
+  // Si ya existe una instancia, la devolvemos
+  if (supabaseInstance) {
+    return supabaseInstance
   }
+
+  // Obtenemos las variables de entorno
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  // Verificamos que las credenciales existan
+  if (!supabaseUrl || !supabaseAnonKey) {
+    if (typeof window !== "undefined") {
+      console.error(
+        "Supabase credentials are missing. Make sure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in your .env.local file.",
+      )
+    }
+    throw new Error("Supabase credentials are missing")
+  }
+
+  // Creamos el cliente con una configuración específica
+  supabaseInstance = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      storageKey: "zagoom-auth-token", // Clave única para evitar conflictos
+      detectSessionInUrl: false, // Desactivamos la detección automática de sesión en URL
+    },
+  })
+
   return supabaseInstance
 })()
 
-// Tipos exportados
-export type User = {
+// ==================== INTERFACES Y TIPOS ====================
+
+export type UserType = "postor" | "subastador" | "unknown"
+
+export interface User {
   id: string
   email?: string
   last_sign_in_at?: string
 }
-
-// Add these new types after the existing User type
-export type UserType = "postor" | "subastador" | "unknown"
 
 export interface UserProfile extends User {
   userType: UserType
@@ -47,25 +66,58 @@ export interface UserProfile extends User {
   subastadorId?: string
 }
 
-// Función para verificar la contraseña actual
+export interface VehicleDetails {
+  id_vehiculo?: string
+  ficha: string
+  anio: number
+  modelo: string
+  descripcion: string
+  imagen_url: string
+}
+
+export interface Auction {
+  id_subasta: string
+  titulo: string
+  descripcion: string
+  estado: "Publicada" | "Activa" | "Finalizada" | "Completada"
+  inicio: string
+  fin: string
+  precio_base: number
+  monto_minimo_puja: number
+  cantidad_max_participantes: number
+  cantidad_participantes: number
+  vehicleDetails?: VehicleDetails
+}
+
+export interface AuctionFilters {
+  startDate?: string
+  endDate?: string
+}
+
+interface RegisterResult {
+  success: boolean
+  message?: string
+  error?: string
+  isRateLimit?: boolean
+}
+
+// ==================== FUNCIONES DE AUTENTICACIÓN ====================
+
 export async function verifyPassword(email: string, password: string): Promise<{ success: boolean; error?: string }> {
   try {
     if (!supabase) {
       throw new Error("Supabase client is not initialized. Check your environment variables.")
     }
 
-    // Intentamos iniciar sesión con el email y contraseña proporcionados
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
 
-    // Si hay un error, la contraseña es incorrecta
     if (error) {
       return { success: false, error: error.message }
     }
 
-    // Si no hay error, la contraseña es correcta
     return { success: true }
   } catch (error: any) {
     console.error("Error al verificar la contraseña:", error)
@@ -73,14 +125,12 @@ export async function verifyPassword(email: string, password: string): Promise<{
   }
 }
 
-// Función para cambiar la contraseña
 export async function changePassword(newPassword: string): Promise<{ success: boolean; error?: string }> {
   try {
     if (!supabase) {
       throw new Error("Supabase client is not initialized. Check your environment variables.")
     }
 
-    // Cambiar la contraseña
     const { error } = await supabase.auth.updateUser({
       password: newPassword,
     })
@@ -171,7 +221,6 @@ export async function getCurrentSession(): Promise<{ user: User | null }> {
   }
 }
 
-// Update the signInWithEmail function to include user type information
 export async function signInWithEmail(
   email: string,
   password: string,
@@ -194,7 +243,6 @@ export async function signInWithEmail(
       return { user: null, error: "No se encontró información del usuario" }
     }
 
-    // Verificar el tipo de usuario
     const userTypeInfo = await checkUserType(data.user.id)
 
     const user: UserProfile = {
@@ -213,11 +261,10 @@ export async function signInWithEmail(
   }
 }
 
-// Update the signUpWithEmail function to create a postor by default
 export async function signUpWithEmail(
   email: string,
   password: string,
-  userType: "postor" | "subastador" = "postor", // Por defecto, los usuarios nuevos son postores
+  userType: "postor" | "subastador" = "postor",
 ): Promise<{ user: UserProfile | null; error: string | null }> {
   try {
     if (!supabase) {
@@ -251,7 +298,6 @@ export async function signUpWithEmail(
       return { user: null, error: userError.message }
     }
 
-    // Crear entrada en la tabla correspondiente según el tipo de usuario
     if (userType === "postor") {
       const postorId = crypto.randomUUID()
       const { error: postorError } = await supabase.from("postor").insert({
@@ -297,7 +343,6 @@ export async function signUpWithEmail(
       return { user, error: null }
     }
 
-    // Si llegamos aquí, algo salió mal
     return { user: null, error: "Error al crear el tipo de usuario" }
   } catch (error: any) {
     console.error("Error signing up with email:", error)
@@ -305,16 +350,15 @@ export async function signUpWithEmail(
   }
 }
 
-// Add these new functions after the existing functions
+// ==================== FUNCIONES DE USUARIO ====================
 
-// Función para verificar el tipo de usuario (postor o subastador)
 export async function checkUserType(userId: string): Promise<UserProfile> {
   try {
     if (!supabase) {
       throw new Error("Supabase client is not initialized. Check your environment variables.")
     }
 
-    // Primero verificamos si el usuario existe en la tabla postor
+    // Verificar si el usuario es postor
     const { data: postorData, error: postorError } = await supabase
       .from("postor")
       .select("id_postor")
@@ -325,7 +369,6 @@ export async function checkUserType(userId: string): Promise<UserProfile> {
       console.error("Error al verificar si el usuario es postor:", postorError)
     }
 
-    // Si es postor, devolvemos esa información
     if (postorData) {
       return {
         id: userId,
@@ -334,7 +377,7 @@ export async function checkUserType(userId: string): Promise<UserProfile> {
       }
     }
 
-    // Si no es postor, verificamos si es subastador
+    // Verificar si el usuario es subastador
     const { data: subastadorData, error: subastadorError } = await supabase
       .from("subastador")
       .select("id_subastador")
@@ -345,7 +388,6 @@ export async function checkUserType(userId: string): Promise<UserProfile> {
       console.error("Error al verificar si el usuario es subastador:", subastadorError)
     }
 
-    // Si es subastador, devolvemos esa información
     if (subastadorData) {
       return {
         id: userId,
@@ -354,7 +396,6 @@ export async function checkUserType(userId: string): Promise<UserProfile> {
       }
     }
 
-    // Si no es ni postor ni subastador, devolvemos tipo desconocido
     return {
       id: userId,
       userType: "unknown",
@@ -368,14 +409,12 @@ export async function checkUserType(userId: string): Promise<UserProfile> {
   }
 }
 
-// Función para obtener información completa del usuario
 export async function getUserProfile(userId: string): Promise<UserProfile | null> {
   try {
     if (!supabase) {
       throw new Error("Supabase client is not initialized. Check your environment variables.")
     }
 
-    // Obtener información básica del usuario
     const { data: userData, error: userError } = await supabase
       .from("usuario")
       .select("*")
@@ -392,10 +431,8 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
       return null
     }
 
-    // Verificar el tipo de usuario
     const userTypeInfo = await checkUserType(userId)
 
-    // Construir el perfil completo
     const userProfile: UserProfile = {
       id: userId,
       email: userData.correo,
@@ -411,22 +448,12 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
   }
 }
 
-// Añadir las nuevas funciones para el registro de usuarios
-
-interface RegisterResult {
-  success: boolean
-  message?: string
-  error?: string
-  isRateLimit?: boolean
-}
-
 export async function registerUser(formData: FormData): Promise<RegisterResult> {
   try {
     if (!supabase) {
       throw new Error("Supabase client is not initialized. Check your environment variables.")
     }
 
-    // Validar términos y condiciones
     const termsAccepted = formData.get("terms")
     if (!termsAccepted) {
       return {
@@ -435,7 +462,6 @@ export async function registerUser(formData: FormData): Promise<RegisterResult> 
       }
     }
 
-    // Extraer datos del formulario
     const nombre = formData.get("name") as string
     const primerApellido = formData.get("apellido-paterno") as string
     const segundoApellido = (formData.get("apellido-materno") as string) || null
@@ -446,7 +472,6 @@ export async function registerUser(formData: FormData): Promise<RegisterResult> 
     const documentoTipo = formData.get("documento-tipo") as string
     const tycId = formData.get("tyc-id") as string
 
-    // Validaciones básicas
     if (!nombre || !primerApellido || !email || !password || !telefono || !documentoUrl || !documentoTipo) {
       return {
         success: false,
@@ -454,7 +479,6 @@ export async function registerUser(formData: FormData): Promise<RegisterResult> 
       }
     }
 
-    // Validar formato de email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(email)) {
       return {
@@ -462,9 +486,6 @@ export async function registerUser(formData: FormData): Promise<RegisterResult> 
         error: "Por favor ingresa una dirección de correo electrónico válida.",
       }
     }
-
-    // Registrar usuario en Supabase Auth
-    console.log("Intentando registrar usuario en Supabase Auth...")
 
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
@@ -507,36 +528,27 @@ export async function registerUser(formData: FormData): Promise<RegisterResult> 
 
     const userId = authData.user.id
 
-    console.log("Datos a insertar en usuario:", {
-      id_usuario: userId,
-      nombre,
-      primer_apellido: primerApellido,
-      segundo_apellido: segundoApellido,
-    })
-
-    // Insertar en tabla usuario
-    const { error: usuarioError } = await supabase.from("usuario").insert({
+    const { error: userError } = await supabase.from("usuario").insert({
       id_usuario: userId,
       nombre: String(nombre),
       primer_apellido: String(primerApellido),
       segundo_apellido: segundoApellido ? String(segundoApellido) : null,
     })
 
-    if (usuarioError) {
+    if (userError) {
       console.error("Error detallado al insertar usuario:", {
-        message: usuarioError.message,
-        details: usuarioError.details,
-        hint: usuarioError.hint,
-        code: usuarioError.code,
+        message: userError.message,
+        details: userError.details,
+        hint: userError.hint,
+        code: userError.code,
       })
 
       return {
         success: false,
-        error: `Error al crear perfil de usuario: ${usuarioError.message}`,
+        error: `Error al crear perfil de usuario: ${userError.message}`,
       }
     }
 
-    // Insertar en tabla postor
     const { data: postorData, error: postorError } = await supabase
       .from("postor")
       .insert({
@@ -555,7 +567,6 @@ export async function registerUser(formData: FormData): Promise<RegisterResult> 
 
     const idPostor = postorData.id_postor
 
-    // Insertar documentación
     const { error: docError } = await supabase.from("documentacion").insert({
       archivo_url: documentoUrl,
       tipo: documentoTipo,
@@ -571,7 +582,6 @@ export async function registerUser(formData: FormData): Promise<RegisterResult> 
       }
     }
 
-    // Obtener términos y condiciones si no se proporcionó
     let idTyc = tycId
     if (!idTyc) {
       const { data: tycData, error: tycError } = await supabase
@@ -590,7 +600,6 @@ export async function registerUser(formData: FormData): Promise<RegisterResult> 
       idTyc = tycData.id_tyc.toString()
     }
 
-    // Registrar aceptación de términos
     const { error: aceptaError } = await supabase.from("acepta").insert({
       id_tyc: idTyc,
       id_postor: idPostor,
@@ -616,7 +625,187 @@ export async function registerUser(formData: FormData): Promise<RegisterResult> 
   }
 }
 
-// Función para obtener los términos y condiciones más recientes
+// ==================== FUNCIONES DE SUBASTAS ====================
+
+export async function fetchAuctionById(auctionId: string): Promise<Auction | null> {
+  try {
+    if (!areCredentialsAvailable()) {
+      console.log("Usando datos de demostración para fetchAuctionById")
+      return null
+    }
+
+    if (!isUuid(auctionId)) {
+      console.error("El ID de la subasta no es un UUID válido.")
+      return null
+    }
+
+    const { data: subastaData, error: subastaError } = await supabase
+      .from("subasta")
+      .select("*")
+      .eq("id_subasta", auctionId.trim())
+      .single()
+
+    if (subastaError) {
+      console.error("Error en la consulta a la tabla subasta:", subastaError)
+      return null
+      console.error("Error en la consulta a la tabla subasta:", subastaError)
+      return null
+    }
+
+    if (!subastaData) {
+      console.log("No se encontró la subasta con ID:", auctionId)
+      return null
+    }
+
+    const { data: vehiculoData, error: vehiculoError } = await supabase
+      .from("vehiculo")
+      .select("*")
+      .eq("ficha", subastaData.ficha)
+      .single()
+
+    if (vehiculoError && vehiculoError.code !== "PGRST116") {
+      console.error("Error en la consulta a la tabla vehiculo:", vehiculoError)
+    }
+
+    return {
+      id_subasta: subastaData.id_subasta,
+      titulo: subastaData.titulo,
+      descripcion: subastaData.descripcion,
+      estado: subastaData.estado,
+      inicio: subastaData.inicio,
+      fin: subastaData.fin,
+      precio_base: subastaData.precio_base,
+      monto_minimo_puja: subastaData.monto_minimo_puja,
+      cantidad_max_participantes: subastaData.cantidad_max_participantes,
+      cantidad_participantes: subastaData.cantidad_participantes,
+      vehicleDetails: vehiculoData
+        ? {
+            id_vehiculo: vehiculoData.id_vehiculo,
+            ficha: vehiculoData.ficha,
+            anio: vehiculoData.anio,
+            modelo: vehiculoData.modelo,
+            descripcion: vehiculoData.descripcion,
+            imagen_url: vehiculoData.imagen_url,
+          }
+        : undefined,
+    }
+  } catch (error: any) {
+    console.error("Error al buscar la subasta:", error?.message)
+    return null
+  }
+}
+
+export async function fetchAvailableAuctions(filters?: AuctionFilters): Promise<Auction[]> {
+  try {
+    let query = supabase.from("subasta").select("*").or("estado.eq.Publicada,estado.eq.publicada")
+
+    if (filters?.startDate) {
+      const startDate = new Date(filters.startDate)
+      const startDateStr = startDate.toISOString().split("T")[0]
+      query = query.gte("inicio", `${startDateStr}T00:00:00`).lt("inicio", `${startDateStr}T23:59:59.999`)
+    }
+
+    if (filters?.endDate) {
+      const endDate = new Date(filters.endDate)
+      const endDateStr = endDate.toISOString().split("T")[0]
+      query = query.gte("fin", `${endDateStr}T00:00:00`).lt("fin", `${endDateStr}T23:59:59.999`)
+    }
+
+    query = query.order("inicio", { ascending: false })
+
+    const { data: subastasData, error: subastasError } = await query
+
+    if (subastasError) {
+      console.error("Error en la consulta a la tabla subasta:", subastasError)
+      throw new Error(`Error al obtener subastas: ${subastasError.message}`)
+    }
+
+    if (!subastasData || subastasData.length === 0) {
+      console.log("No se encontraron subastas disponibles")
+      return []
+    }
+
+    const fichas = subastasData.map((subasta) => subasta.ficha).filter((ficha) => ficha)
+
+    let vehiculosData: any[] = []
+
+    if (fichas.length > 0) {
+      const { data: vehiculosResult, error: vehiculosError } = await supabase
+        .from("vehiculo")
+        .select("*")
+        .in("ficha", fichas)
+
+      if (vehiculosError) {
+        console.error("Error en la consulta a la tabla vehiculo:", vehiculosError)
+      } else {
+        vehiculosData = vehiculosResult || []
+      }
+    }
+
+    const vehiculosPorFicha = vehiculosData.reduce(
+      (map, vehiculo) => {
+        map[vehiculo.ficha] = vehiculo
+        return map
+      },
+      {} as Record<string, any>,
+    )
+
+    const auctions = subastasData.map((subasta) => {
+      const vehiculo = vehiculosPorFicha[subasta.ficha]
+      return {
+        id_subasta: subasta.id_subasta,
+        titulo: subasta.titulo,
+        descripcion: subasta.descripcion,
+        estado: subasta.estado || "Publicada",
+        inicio: subasta.inicio,
+        fin: subasta.fin,
+        precio_base: subasta.precio_base,
+        monto_minimo_puja: subasta.monto_minimo_puja,
+        cantidad_max_participantes: subasta.cantidad_max_participantes,
+        cantidad_participantes: subasta.cantidad_participantes,
+        vehicleDetails: vehiculo
+          ? {
+              id_vehiculo: vehiculo.id_vehiculo,
+              ficha: vehiculo.ficha,
+              anio: vehiculo.anio,
+              modelo: vehiculo.modelo,
+              descripcion: vehiculo.descripcion,
+              imagen_url: vehiculo.imagen_url,
+            }
+          : undefined,
+      }
+    })
+
+    if (filters) {
+      return filterAuctionsByDateRange(auctions, filters)
+    }
+
+    return auctions
+  } catch (error: any) {
+    console.error("Error al obtener las subastas disponibles:", error?.message)
+    throw error
+  }
+}
+
+export async function fetchAllVehicles(): Promise<VehicleDetails[]> {
+  try {
+    if (!areCredentialsAvailable()) {
+      return []
+    }
+
+    const { data: vehiculosData, error: vehiculosError } = await supabase.from("vehiculo").select("*")
+
+    if (vehiculosError) {
+      throw new Error(`Error al obtener vehículos: ${vehiculosError.message}`)
+    }
+
+    return vehiculosData || []
+  } catch (error: any) {
+    console.error("Error al obtener vehículos:", error?.message)
+    throw error
+  }
+}
+
 export async function getLatestTerms() {
   try {
     if (!supabase) {
@@ -638,62 +827,218 @@ export async function getLatestTerms() {
   }
 }
 
-// ==================== NUEVAS FUNCIONES PARA SUBASTAS ====================
+export async function registerParticipation(
+  userId: string,
+  auctionId: string,
+): Promise<{ success: boolean; postorId?: string; error?: string }> {
+  try {
+    if (!supabase) {
+      throw new Error("Supabase client is not initialized. Check your environment variables.")
+    }
 
-// Interfaz que define los detalles de un vehículo en una subasta.
-export interface VehicleDetails {
-  id_vehiculo: string
-  anio: number
-  modelo: string
-  descripcion: string
-  ficha: string
-  imagen_url: string
+    const { data: postorData, error: postorError } = await supabase
+      .from("postor")
+      .select("id_postor")
+      .eq("id_usuario", userId)
+      .single()
+
+    if (postorError || !postorData) {
+      throw new Error("No se encontró el postor asociado a este usuario")
+    }
+
+    const idPostor = postorData.id_postor
+
+    const { data: existing } = await supabase
+      .from("participa")
+      .select("id_postor")
+      .eq("id_postor", idPostor)
+      .eq("id_subasta", auctionId)
+      .single()
+
+    if (existing) {
+      return { success: false, error: "Ya estás participando en esta subasta" }
+    }
+
+    const { data: auctionData, error: auctionError } = await supabase
+      .from("subasta")
+      .select("cantidad_participantes, cantidad_max_participantes, estado")
+      .eq("id_subasta", auctionId)
+      .single()
+
+    if (auctionError || !auctionData) {
+      throw new Error("No se pudo obtener información de la subasta")
+    }
+
+    if (auctionData.cantidad_participantes >= auctionData.cantidad_max_participantes) {
+      return {
+        success: false,
+        error: "Esta subasta ya ha alcanzado el límite máximo de participantes",
+      }
+    }
+
+    if (auctionData.estado !== "Publicada") {
+      return {
+        success: false,
+        error: "No puedes participar en esta subasta porque no está activa",
+      }
+    }
+
+    const { data, error } = await supabase
+      .from("participa")
+      .insert([
+        {
+          id_postor: idPostor,
+          id_subasta: auctionId,
+        },
+      ])
+      .select()
+
+    if (error) {
+      throw error
+    }
+
+    const { error: updateError } = await supabase
+      .from("subasta")
+      .update({
+        cantidad_participantes: auctionData.cantidad_participantes + 1,
+        estado:
+          auctionData.cantidad_participantes + 1 >= auctionData.cantidad_max_participantes
+            ? "Completada"
+            : auctionData.estado,
+      })
+      .eq("id_subasta", auctionId)
+
+    if (updateError) {
+      throw updateError
+    }
+
+    return {
+      success: true,
+      postorId: idPostor,
+    }
+  } catch (error: any) {
+    console.error("Error en registerParticipation:", error)
+    return {
+      success: false,
+      error: error.message || "Error al registrar participación",
+    }
+  }
 }
 
-// Interfaz que define los detalles de una subasta.
-export interface Auction {
-  id_subasta: string
-  titulo: string
-  descripcion: string
-  estado: string
-  inicio: string
-  fin: string
-  precio_base: number
-  monto_minimo_puja: number
-  cantidad_max_pujas: number
-  cantidad_max_participantes: number
-  cantidad_participantes: number
-  ficha: string
-  vehicleDetails?: VehicleDetails
+export async function getAuctionById(auctionId: string) {
+  if (!supabase) {
+    throw new Error("Supabase no está inicializado.")
+  }
+
+  try {
+    console.log("Iniciando consulta para obtener subasta con ID:", auctionId)
+
+    const { data, error } = await supabase
+      .from("subasta")
+      .select(`
+        id_subasta,
+        titulo,
+        descripcion,
+        estado,
+        inicio,
+        fin,
+        precio_base,
+        monto_minimo_puja,
+        cantidad_max_participantes,
+        cantidad_participantes,
+        ficha,
+        vehiculo:vehiculo(*)
+      `)
+      .eq("id_subasta", auctionId)
+      .single()
+
+    if (error) {
+      console.error("Error al obtener subasta:", error)
+      throw new Error("Error al obtener subasta: " + error.message)
+    }
+
+    if (!data) {
+      console.error("No se encontró la subasta con ID:", auctionId)
+      return null
+    }
+
+    console.log("Datos obtenidos de la base de datos:", data)
+
+    // Transformar los datos para que coincidan con la estructura esperada
+    return {
+      id_subasta: data.id_subasta,
+      titulo: data.titulo,
+      descripcion: data.descripcion,
+      estado: data.estado,
+      inicio: data.inicio,
+      fin: data.fin,
+      precio_base: data.precio_base,
+      monto_minimo_puja: data.monto_minimo_puja,
+      cantidad_max_participantes: data.cantidad_max_participantes,
+      cantidad_participantes: data.cantidad_participantes,
+      vehiculo: data.vehiculo || {
+        ficha: "",
+        anio: 0,
+        modelo: "No especificado",
+        descripcion: "Sin descripción",
+        imagen_url: "/placeholder.svg",
+      },
+    }
+  } catch (err) {
+    console.error("Error inesperado al obtener subasta:", err)
+    throw new Error("Error inesperado al obtener la subasta")
+  }
 }
 
-// Interfaz para los filtros de subastas
-export interface AuctionFilters {
-  startDate?: string
-  endDate?: string
+export async function checkParticipation(auctionId: string, userId: string): Promise<boolean> {
+  if (!supabase) {
+    throw new Error("Supabase no está inicializado.")
+  }
+
+  try {
+    // Primero obtener el id_postor del usuario
+    const { data: postorData, error: postorError } = await supabase
+      .from("postor")
+      .select("id_postor")
+      .eq("id_usuario", userId)
+      .single()
+
+    if (postorError || !postorData) {
+      console.error("Error al obtener id_postor:", postorError)
+      return false
+    }
+
+    console.log("ID del postor obtenido:", postorData.id_postor)
+    console.log("Verificando participación para subasta:", auctionId)
+
+    // Luego verificar la participación usando el id_postor
+    const { data: participaData, error: participaError } = await supabase
+      .from("participa")
+      .select("id_postor")
+      .eq("id_postor", postorData.id_postor)
+      .eq("id_subasta", auctionId)
+      .maybeSingle()
+
+    if (participaError) {
+      console.error("Error al verificar participación:", participaError)
+      return false
+    }
+
+    const isParticipating = !!participaData
+    console.log("¿Está participando?:", isParticipating)
+    return isParticipating
+  } catch (error) {
+    console.error("Error en checkParticipation:", error)
+    return false
+  }
 }
 
-/**
- * Valida si una cadena tiene formato UUID
- * @param str - Cadena a validar
- * @returns true si la cadena tiene formato UUID, false en caso contrario
- */
-export function isUuid(str: string): boolean {
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-  return uuidRegex.test(str)
-}
+// ==================== FUNCIONES AUXILIARES ====================
 
-/**
- * Filtra subastas por rango de fechas
- * @param auctions - Array de subastas
- * @param filters - Filtros a aplicar
- * @returns Array de subastas filtradas
- */
-export function filterAuctionsByDateRange(auctions: Auction[], filters: AuctionFilters): Auction[] {
+function filterAuctionsByDateRange(auctions: Auction[], filters: AuctionFilters): Auction[] {
   try {
     if (!filters?.startDate && !filters?.endDate) return auctions
 
-    // Función de normalización mejorada
     const normalizeDate = (dateStr: string): Date => {
       const [year, month, day] = dateStr.split("-").map(Number)
       return new Date(Date.UTC(year, month - 1, day))
@@ -701,17 +1046,14 @@ export function filterAuctionsByDateRange(auctions: Auction[], filters: AuctionF
 
     return auctions.filter((auction) => {
       try {
-        // Parsear fechas de la subasta
         const auctionStart = new Date(auction.inicio)
         const auctionEnd = new Date(auction.fin)
 
-        // Validar fechas
         if (isNaN(auctionStart.getTime()) || isNaN(auctionEnd.getTime())) {
           console.warn("Fechas inválidas en subasta:", auction.inicio, auction.fin)
           return false
         }
 
-        // Normalizar fechas de la subasta (solo día)
         const normalizedAuctionStart = new Date(
           Date.UTC(auctionStart.getFullYear(), auctionStart.getMonth(), auctionStart.getDate()),
         )
@@ -720,12 +1062,10 @@ export function filterAuctionsByDateRange(auctions: Auction[], filters: AuctionF
           Date.UTC(auctionEnd.getFullYear(), auctionEnd.getMonth(), auctionEnd.getDate()),
         )
 
-        // Normalizar fechas de filtro
         const normalizedFilterStart = filters.startDate ? normalizeDate(filters.startDate) : null
 
         const normalizedFilterEnd = filters.endDate ? normalizeDate(filters.endDate) : null
 
-        // Comparación segura
         const startMatch = !normalizedFilterStart || normalizedAuctionStart >= normalizedFilterStart
 
         const endMatch = !normalizedFilterEnd || normalizedAuctionEnd <= normalizedFilterEnd
@@ -739,239 +1079,6 @@ export function filterAuctionsByDateRange(auctions: Auction[], filters: AuctionF
   } catch (error) {
     console.error("Error crítico en filterAuctionsByDateRange:", error)
     return []
-  }
-}
-
-/**
- * Busca una subasta en la base de datos por su ID.
- *
- * @param {string} auctionId - El ID de la subasta a buscar.
- * @returns {Promise<Auction | null>} Una promesa que resuelve con los datos de la subasta si se encuentra, o null si ocurre un error.
- */
-export async function fetchAuctionById(auctionId: string): Promise<Auction | null> {
-  try {
-    if (!isUuid(auctionId)) {
-      console.error("El ID de la subasta no es un UUID válido.")
-      return null
-    }
-
-    if (!supabase) {
-      throw new Error("Supabase client is not initialized. Check your environment variables.")
-    }
-
-    // Primero, obtenemos los datos de la subasta
-    const { data: subastaData, error: subastaError } = await supabase
-      .from("subasta")
-      .select("*")
-      .eq("id_subasta", auctionId.trim())
-      .single()
-
-    if (subastaError) {
-      console.error("Error en la consulta a la tabla subasta:", subastaError)
-      return null
-    }
-
-    if (!subastaData) {
-      console.log("No se encontró la subasta con ID:", auctionId)
-      return null
-    }
-
-    // Luego, obtenemos los datos del vehículo asociado usando el campo 'ficha'
-    const { data: vehiculoData, error: vehiculoError } = await supabase
-      .from("vehiculo")
-      .select("*")
-      .eq("ficha", subastaData.ficha)
-      .single()
-
-    if (vehiculoError && vehiculoError.code !== "PGRST116") {
-      // PGRST116 es "no se encontraron resultados", lo cual es aceptable
-      console.error("Error en la consulta a la tabla vehiculo:", vehiculoError)
-    }
-
-    // Construimos el objeto de respuesta
-    return {
-      id_subasta: subastaData.id_subasta,
-      titulo: subastaData.titulo,
-      descripcion: subastaData.descripcion,
-      estado: subastaData.estado,
-      inicio: subastaData.inicio,
-      fin: subastaData.fin,
-      precio_base: subastaData.precio_base,
-      monto_minimo_puja: subastaData.monto_minimo_puja,
-      cantidad_max_pujas: subastaData.cantidad_max_pujas,
-      cantidad_max_participantes: subastaData.cantidad_max_participantes,
-      cantidad_participantes: subastaData.cantidad_participantes,
-      ficha: subastaData.ficha,
-      vehicleDetails: vehiculoData
-        ? {
-            id_vehiculo: vehiculoData.id_vehiculo,
-            anio: vehiculoData.anio,
-            modelo: vehiculoData.modelo,
-            descripcion: vehiculoData.descripcion,
-            ficha: vehiculoData.ficha,
-            imagen_url: vehiculoData.imagen_url,
-          }
-        : undefined,
-    }
-  } catch (error: any) {
-    console.error("Error al buscar la subasta:", error?.message)
-    return null
-  }
-}
-
-/**
- * Obtiene todas las subastas activas de la base de datos de Supabase.
- *
- * @param {AuctionFilters} filters - Filtros opcionales para aplicar a las subastas
- * @returns {Promise<Auction[]>} Una promesa que resuelve con un array de subastas activas.
- */
-export async function fetchAvailableAuctions(filters?: AuctionFilters): Promise<Auction[]> {
-  try {
-    if (!supabase) {
-      throw new Error("Supabase client is not initialized. Check your environment variables.")
-    }
-
-    let query = supabase.from("subasta").select("*").or("estado.eq.Publicada,estado.eq.publicada")
-
-    // Aplicar filtros
-    if (filters?.startDate) {
-      const startDate = new Date(filters.startDate)
-      const startDateStr = startDate.toISOString().split("T")[0]
-      // Usamos gte para inicio del día y lt para inicio del día siguiente
-      query = query.gte("inicio", `${startDateStr}T00:00:00`).lt("inicio", `${startDateStr}T23:59:59.999`)
-    }
-
-    if (filters?.endDate) {
-      const endDate = new Date(filters.endDate)
-      const endDateStr = endDate.toISOString().split("T")[0]
-      // Usamos gte para inicio del día y lt para inicio del día siguiente
-      query = query.gte("fin", `${endDateStr}T00:00:00`).lt("fin", `${endDateStr}T23:59:59.999`)
-    }
-
-    console.log("Filtros aplicados:", {
-      startDate: filters?.startDate,
-      endDate: filters?.endDate,
-    })
-
-    query = query.order("inicio", { ascending: false })
-
-    const { data: subastasData, error: subastasError } = await query
-    console.log("Datos crudos de subasta:", subastasData)
-
-    if (subastasError) {
-      console.error("Error en la consulta a la tabla subasta:", subastasError)
-      throw new Error(`Error al obtener subastas: ${subastasError.message}`)
-    }
-
-    if (!subastasData || subastasData.length === 0) {
-      console.log("No se encontraron subastas disponibles")
-      return []
-    }
-
-    console.log(`Se encontraron ${subastasData.length} subastas publicadas`)
-
-    // Obtenemos las fichas de las subastas para buscar los vehículos asociados
-    const fichas = subastasData.map((subasta) => subasta.ficha).filter((ficha) => ficha) // Filtrar fichas nulas o undefined
-
-    let vehiculosData: any[] = []
-
-    if (fichas.length > 0) {
-      // Obtenemos los vehículos asociados a las fichas
-      const { data: vehiculosResult, error: vehiculosError } = await supabase
-        .from("vehiculo")
-        .select("*")
-        .in("ficha", fichas)
-
-      if (vehiculosError) {
-        console.error("Error en la consulta a la tabla vehiculo:", vehiculosError)
-        // No lanzamos error aquí porque los vehículos son opcionales
-      } else {
-        vehiculosData = vehiculosResult || []
-      }
-    }
-
-    // Creamos un mapa de vehículos por ficha para facilitar la búsqueda
-    const vehiculosPorFicha = vehiculosData.reduce(
-      (map, vehiculo) => {
-        map[vehiculo.ficha] = vehiculo
-        return map
-      },
-      {} as Record<string, any>,
-    )
-
-    // Construimos el array de subastas con sus vehículos asociados
-    const auctions = subastasData.map((subasta) => {
-      const vehiculo = vehiculosPorFicha[subasta.ficha]
-      return {
-        id_subasta: subasta.id_subasta,
-        titulo: subasta.titulo,
-        descripcion: subasta.descripcion,
-        estado: subasta.estado || "Publicada",
-        inicio: subasta.inicio,
-        fin: subasta.fin,
-        precio_base: subasta.precio_base,
-        monto_minimo_puja: subasta.monto_minimo_puja,
-        cantidad_max_pujas: subasta.cantidad_max_pujas,
-        cantidad_max_participantes: subasta.cantidad_max_participantes,
-        cantidad_participantes: subasta.cantidad_participantes,
-        ficha: subasta.ficha,
-        vehicleDetails: vehiculo
-          ? {
-              id_vehiculo: vehiculo.id_vehiculo,
-              anio: vehiculo.anio,
-              modelo: vehiculo.modelo,
-              descripcion: vehiculo.descripcion,
-              ficha: vehiculo.ficha,
-              imagen_url: vehiculo.imagen_url,
-            }
-          : undefined,
-      }
-    })
-
-    console.log("Subastas ANTES de filtrar:", {
-      count: auctions.length,
-      sample: auctions[0], // Muestra la primera subasta para inspección
-    })
-
-    // Aplicar filtros si se proporcionan
-    if (filters) {
-      const filteredAuctions = filterAuctionsByDateRange(auctions, filters)
-      console.log("Subastas filtradas:", filteredAuctions.length)
-      console.log("Subastas DESPUÉS de filtrar:", {
-        count: filteredAuctions.length,
-        sample: filteredAuctions[0] || null,
-      })
-      return filteredAuctions
-    }
-
-    return auctions
-  } catch (error: any) {
-    console.error("Error al obtener las subastas disponibles:", error?.message)
-    throw error
-  }
-}
-
-/**
- * Obtiene todos los vehículos de la base de datos
- * @returns {Promise<VehicleDetails[]>} Array de vehículos
- */
-export async function fetchAllVehicles(): Promise<VehicleDetails[]> {
-  try {
-    if (!supabase) {
-      throw new Error("Supabase client is not initialized. Check your environment variables.")
-    }
-
-    const { data: vehiculosData, error: vehiculosError } = await supabase.from("vehiculo").select("*")
-
-    if (vehiculosError) {
-      console.error("Error en la consulta a la tabla vehiculo:", vehiculosError)
-      throw new Error(`Error al obtener vehículos: ${vehiculosError.message}`)
-    }
-
-    return vehiculosData || []
-  } catch (error: any) {
-    console.error("Error al obtener vehículos:", error?.message)
-    throw error
   }
 }
 

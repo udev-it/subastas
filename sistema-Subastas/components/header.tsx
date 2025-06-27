@@ -21,6 +21,12 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 
+const navItems = [
+  { name: "Inicio", href: "#home", id: "home" },
+  { name: "Subastas", href: "#auctions", id: "auctions" },
+  //{ name: "Listado de Subastas", href: "#auctions-list", id: "auctions-list" },
+]
+
 interface HeaderProps {
   activeSection: string
   setActiveSection: (section: string) => void
@@ -88,7 +94,47 @@ export default function Header({ activeSection, setActiveSection }: HeaderProps)
         </Link>
 
         {/* Desktop Navigation */}
-        <nav className="hidden md:flex items-center space-x-4">
+         <nav className="hidden md:flex items-center space-x-4">
+          <div className="relative flex space-x-4 items-center">
+            {navItems.map((item, index) => {
+              const isActive = activeSection === item.id
+
+              return (
+                <motion.div
+                  key={item.name}
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: index * 0.1 }}
+                  className="relative"
+                >
+                  {isActive && (
+                    <motion.div
+                      layoutId="activeSection"
+                      className="absolute inset-0 bg-primary/10 rounded-md -z-10"
+                      transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                    />
+                  )}
+                  <Link
+                    href={item.href}
+                    onClick={(e) => handleNavClick(e, item.id)}
+                    className={cn(
+                      "text-sm font-medium transition-colors px-3 py-2 rounded-md relative",
+                      isActive ? "text-primary font-semibold" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {item.name}
+                    {isActive && (
+                      <motion.div
+                        className="absolute -bottom-1 left-0 right-0 h-0.5 bg-primary"
+                        layoutId="underline"
+                        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                      />
+                    )}
+                  </Link>
+                </motion.div>
+              )
+            })}
+          </div>
           {/* Menú desplegable del perfil de usuario */}
           {user && (
             <DropdownMenu>

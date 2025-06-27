@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/use-auth"
 import { fetchAuctionById, type Auction } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, Loader2 } from "lucide-react"
+import AuctionBidding from "@/components/auction/auction-bidding"
 
 export default function Home() {
   const [activeSection, setActiveSection] = useState("home")
@@ -18,6 +19,7 @@ export default function Home() {
   const [selectedAuction, setSelectedAuction] = useState<Auction | null>(null)
   const [loadingAuction, setLoadingAuction] = useState(false)
   const { user, isLoading } = useAuth()
+  const [biddingAuctionId, setBiddingAuctionId] = useState<string | null>(null)
 
   // Cuando el usuario inicia sesión, actualizar automáticamente a la sección de subastas
   useEffect(() => {
@@ -75,20 +77,26 @@ export default function Home() {
   // Función para manejar participación en subasta
   const handleParticipate = (auction: any) => {
     console.log("Participar en subasta:", auction)
-    // Aquí puedes implementar la lógica para participar en la subasta
-    // Por ejemplo, redirigir a una página de pujas o abrir un modal
+    setBiddingAuctionId(auction.id)
+    setActiveSection("auction-bidding")
   }
 
   // Función para manejar participación desde el detalle
   const handleParticipateFromDetail = (auctionId: string) => {
     console.log("Participar en subasta desde detalle:", auctionId)
-    // Aquí puedes implementar la lógica para participar en la subasta
+    setBiddingAuctionId(auctionId)
+    setActiveSection("auction-bidding")
   }
 
   // Función para manejar ver detalles de subasta
   const handleViewDetails = (auction: any) => {
     console.log("Ver detalles de subasta:", auction)
     setSelectedAuctionId(auction.id)
+  }
+
+  const handleBackFromBidding = () => {
+    setBiddingAuctionId(null)
+    setActiveSection("auctions")
   }
 
   return (
@@ -134,6 +142,10 @@ export default function Home() {
               </div>
             )}
           </div>
+        )}
+
+        {activeSection === "auction-bidding" && user && biddingAuctionId && (
+          <AuctionBidding auctionId={biddingAuctionId} onBack={handleBackFromBidding} />
         )}
 
         {activeSection === "dashboard" && user && <UserDashboard user={user} onViewProfile={handleViewProfile} />}
