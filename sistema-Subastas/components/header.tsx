@@ -2,10 +2,10 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { ModeToggle } from "./mode-toggle"
 import { Button } from "@/components/ui/button"
-import { Menu, X, LogOut, User, ChevronDown, LayoutDashboard } from "lucide-react"
+import { Menu, X, LogOut, User, ChevronDown, LayoutDashboard, Bell } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { motion } from "framer-motion"
 import Link from "next/link"
@@ -21,11 +21,10 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 
-const navItems = [
-  { name: "Inicio", href: "#home", id: "home" },
-  { name: "Subastas", href: "#auctions", id: "auctions" },
-  //{ name: "Listado de Subastas", href: "#auctions-list", id: "auctions-list" },
-]
+import NotificationDropdown from "@/components/NotificationDropdown"
+import { obtenerNotificaciones } from "@/lib/notifications"
+
+
 
 interface HeaderProps {
   activeSection: string
@@ -35,6 +34,11 @@ interface HeaderProps {
 export default function Header({ activeSection, setActiveSection }: HeaderProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
+  const [idPostor, setIdPostor] = useState<string | null>(null)
+  const [verDropdown, setVerDropdown] = useState(false)
+  const [hayNoLeidas, setHayNoLeidas] = useState(false)
+
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Obtenemos el estado de autenticación del hook useAuth
   const { user, isLoading } = useAuth()
@@ -47,6 +51,34 @@ export default function Header({ activeSection, setActiveSection }: HeaderProps)
     window.addEventListener("scroll", handleScroll)
     return () => window.removeEventListener("scroll", handleScroll)
   }, [])
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setVerDropdown(false)
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside)
+    }
+  }, [dropdownRef])
+
+  useEffect(() => {
+    if (!idPostor) return
+    const verificarNoLeidas = async () => {
+      try {
+        const notis = await obtenerNotificaciones(idPostor)
+        setHayNoLeidas(notis.some((n: any) => !n.leida))
+      } catch (e) {
+        console.error("Error al obtener notificaciones:", e)
+      }
+    }
+    verificarNoLeidas()
+    const interval = setInterval(verificarNoLeidas, 20000)
+    return () => clearInterval(interval)
+  }, [idPostor])
 
   // Handle navigation item click
   const handleNavClick = (e: React.MouseEvent<HTMLAnchorElement>, sectionId: string) => {
@@ -94,47 +126,33 @@ export default function Header({ activeSection, setActiveSection }: HeaderProps)
         </Link>
 
         {/* Desktop Navigation */}
-         <nav className="hidden md:flex items-center space-x-4">
+        <nav className="hidden md:flex items-center space-x-4">
           <div className="relative flex space-x-4 items-center">
-            {navItems.map((item, index) => {
-              const isActive = activeSection === item.id
-
-              return (
-                <motion.div
-                  key={item.name}
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3, delay: index * 0.1 }}
-                  className="relative"
-                >
-                  {isActive && (
-                    <motion.div
-                      layoutId="activeSection"
-                      className="absolute inset-0 bg-primary/10 rounded-md -z-10"
-                      transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                    />
-                  )}
-                  <Link
-                    href={item.href}
-                    onClick={(e) => handleNavClick(e, item.id)}
-                    className={cn(
-                      "text-sm font-medium transition-colors px-3 py-2 rounded-md relative",
-                      isActive ? "text-primary font-semibold" : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {item.name}
-                    {isActive && (
-                      <motion.div
-                        className="absolute -bottom-1 left-0 right-0 h-0.5 bg-primary"
-                        layoutId="underline"
-                        transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                      />
-                    )}
-                  </Link>
-                </motion.div>
-              )
-            })}
+            
           </div>
+          {/* Botón de notificaciones */}
+          {user && (
+            <div className="relative" ref={dropdownRef}>
+              <motion.button
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.3 }}
+                onClick={() => setVerDropdown((v) => !v)}
+                className="relative p-2 rounded-full hover:bg-muted/50 transition-colors"
+                aria-label="Notificaciones"
+              >
+                <Bell className="h-5 w-5 text-muted-foreground hover:text-foreground" />
+                {hayNoLeidas && (
+                  <motion.span
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-ping"
+                  />
+                )}
+              </motion.button>
+              {verDropdown && <NotificationDropdown id_postor={idPostor!} />}
+            </div>
+          )}
           {/* Menú desplegable del perfil de usuario */}
           {user && (
             <DropdownMenu>
@@ -152,10 +170,10 @@ export default function Header({ activeSection, setActiveSection }: HeaderProps)
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="cursor-pointer flex items-center"
-                  onClick={() => setActiveSection("dashboard")}
+                  onClick={() => setActiveSection("auctions")}
                 >
                   <LayoutDashboard className="mr-2 h-4 w-4" />
-                  Inicio
+                  Subasta
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="cursor-pointer flex items-center"
@@ -276,6 +294,20 @@ export default function Header({ activeSection, setActiveSection }: HeaderProps)
                   Iniciar sesión
                 </Button>
               </div>
+            )}
+            {/* Botón de notificaciones para móvil */}
+            {user && (
+              <button
+                onClick={() => {
+                  setVerDropdown((v) => !v)
+                  setIsOpen(false)
+                }}
+                className="text-sm font-medium py-2 px-3 rounded-md flex items-center text-muted-foreground hover:bg-muted/50 hover:text-foreground justify-start"
+              >
+                <Bell className="mr-2 h-4 w-4" />
+                Notificaciones
+                {hayNoLeidas && <span className="ml-auto w-2 h-2 bg-red-500 rounded-full"></span>}
+              </button>
             )}
           </nav>
         </div>
