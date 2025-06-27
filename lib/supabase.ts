@@ -639,3 +639,312 @@ export async function getLatestTerms() {
 }
 
 export default supabase
+
+// ==================== INTERFACES ====================
+
+// Interfaz que define los detalles de un vehículo en una subasta.
+export interface VehicleDetails {
+  id_vehiculo: string
+  anio: number
+  modelo: string
+  descripcion: string
+  ficha: string
+  imagen_url: string
+}
+
+// Interfaz que define los detalles de una subasta.
+export interface Auction {
+  id_subasta: string
+  titulo: string
+  descripcion: string
+  estado: string
+  inicio: string
+  fin: string
+  precio_base: number
+  monto_minimo_puja: number
+  cantidad_max_pujas: number
+  cantidad_max_participantes: number
+  cantidad_participantes: number
+  ficha: string
+  vehicleDetails?: VehicleDetails
+}
+
+// Interfaz para los filtros de subastas
+export interface AuctionFilters {
+  startDate?: string
+  endDate?: string
+}
+
+// ==================== FUNCIONES DE FILTRADO ====================
+
+/*
+ * Convierte fecha de formato DD/MM/YYYY a Date
+ * @param dateString - Fecha en formato DD/MM/YYYY
+ * @returns Objeto Date
+ */
+export function parseAuctionDate(dateString: string): Date {
+  const [day, month, year] = dateString.split("/").map(Number)
+  return new Date(year, month - 1, day)
+}
+
+/**
+ * Convierte fecha de formato YYYY-MM-DD a Date
+ * @param dateString - Fecha en formato YYYY-MM-DD
+ * @returns Objeto Date
+ */
+export function parseInputDate(dateString: string): Date {
+  return new Date(dateString)
+}
+
+/*
+ * Filtra subastas por rango de fechas
+ * @param auctions - Array de subastas
+ * @param filters - Filtros a aplicar
+ * @returns Array de subastas filtradas
+ */
+export function filterAuctionsByDateRange(auctions: Auction[], filters: AuctionFilters): Auction[] {
+  try {
+    if (!filters?.startDate && !filters?.endDate) return auctions;
+
+    // Función de normalización mejorada
+    const normalizeDate = (dateStr: string): Date => {
+      const [year, month, day] = dateStr.split('-').map(Number);
+      return new Date(Date.UTC(year, month - 1, day));
+    };
+
+    return auctions.filter((auction) => {
+      try {
+        // Parsear fechas de la subasta
+        const auctionStart = new Date(auction.inicio);
+        const auctionEnd = new Date(auction.fin);
+
+        // Validar fechas
+        if (isNaN(auctionStart.getTime()) || isNaN(auctionEnd.getTime())) {
+          console.warn('Fechas inválidas en subasta:', auction.inicio, auction.fin);
+          return false;
+        }
+
+        // Normalizar fechas de la subasta (solo día)
+        const normalizedAuctionStart = new Date(Date.UTC(
+          auctionStart.getFullYear(),
+          auctionStart.getMonth(),
+          auctionStart.getDate()
+        ));
+        
+        const normalizedAuctionEnd = new Date(Date.UTC(
+          auctionEnd.getFullYear(),
+          auctionEnd.getMonth(),
+          auctionEnd.getDate()
+        ));
+
+        // Normalizar fechas de filtro
+        const normalizedFilterStart = filters.startDate 
+          ? normalizeDate(filters.startDate)
+          : null;
+          
+        const normalizedFilterEnd = filters.endDate
+          ? normalizeDate(filters.endDate)
+          : null;
+
+        // Depuración importante
+        console.log('Comparación:', {
+          auction: {
+            original: { inicio: auction.inicio, fin: auction.fin },
+            normalized: { 
+              start: normalizedAuctionStart.toISOString(), 
+              end: normalizedAuctionEnd.toISOString() 
+            }
+          },
+          filters: {
+            original: { start: filters.startDate, end: filters.endDate },
+            normalized: {
+              start: normalizedFilterStart?.toISOString(),
+              end: normalizedFilterEnd?.toISOString()
+            }
+          }
+        });
+
+        // Comparación segura
+        const startMatch = !normalizedFilterStart || 
+          normalizedAuctionStart >= normalizedFilterStart;
+          
+        const endMatch = !normalizedFilterEnd || 
+          normalizedAuctionEnd <= normalizedFilterEnd;
+
+        return startMatch && endMatch;
+      } catch (error) {
+        console.error("Error filtrando subasta:", auction, error);
+        return false;
+      }
+    });
+  } catch (error) {
+    console.error("Error crítico en filterAuctionsByDateRange:", error);
+    return [];
+  }
+}
+
+// ==================== FUNCIONES DE BASE DE DATOS ====================
+
+/**
+ * Obtiene todas las subastas activas de la base de datos de Supabase.
+ *
+ * @param {AuctionFilters} filters - Filtros opcionales para aplicar a las subastas
+ * @returns {Promise<Auction[]>} Una promesa que resuelve con un array de subastas activas.
+ */
+export async function fetchAvailableAuctions(filters?: AuctionFilters): Promise<Auction[]> {
+  try {
+    const supabase = getSupabase();
+
+    let query = supabase
+      .from("subasta")
+      .select("*")
+      .or("estado.eq.Publicada,estado.eq.publicada");
+
+    // Aplicar filtros
+    if (filters?.startDate) {
+      const startDate = new Date(filters.startDate);
+      const startDateStr = startDate.toISOString().split('T')[0];
+      // Usamos gte para inicio del día y lt para inicio del día siguiente
+      query = query
+        .gte('inicio', `${startDateStr}T00:00:00`)
+        .lt('inicio', `${startDateStr}T23:59:59.999`);
+    }
+
+    if (filters?.endDate) {
+      const endDate = new Date(filters.endDate);
+      const endDateStr = endDate.toISOString().split('T')[0];
+      // Usamos gte para inicio del día y lt para inicio del día siguiente
+      query = query
+        .gte('fin', `${endDateStr}T00:00:00`)
+        .lt('fin', `${endDateStr}T23:59:59.999`);
+    }
+
+    console.log('Filtros aplicados:', {
+      startDate: filters?.startDate,
+      endDate: filters?.endDate
+    });
+
+    query = query.order("inicio", { ascending: false });
+
+    const { data: subastasData, error: subastasError } = await query;
+    console.log("Datos crudos de subast:", subastasData)
+    
+    if (subastasError) {
+      console.error("Error en la consulta a la tabla subasta:", subastasError)
+      throw new Error(`Error al obtener subastas: ${subastasError.message}`)
+    }
+
+    if (!subastasData || subastasData.length === 0) {
+      console.log("No se encontraron subastas disponibles")
+      return []
+    }
+
+    console.log(`Se encontraron ${subastasData.length} subastas publicads`)
+
+    // Obtenemos las fichas de las subastas para buscar los vehículos asociados
+    const fichas = subastasData.map((subasta) => subasta.ficha).filter((ficha) => ficha) // Filtrar fichas nulas o undefined
+
+    let vehiculosData: any[] = []
+
+    if (fichas.length > 0) {
+      // Obtenemos los vehículos asociados a las fichas
+      const { data: vehiculosResult, error: vehiculosError } = await supabase
+        .from("vehiculo")
+        .select("*")
+        .in("ficha", fichas)
+
+      if (vehiculosError) {
+        console.error("Error en la consulta a la tabla vehiculo:", vehiculosError)
+        // No lanzamos error aquí porque los vehículos son opcionales
+      } else {
+        vehiculosData = vehiculosResult || []
+      }
+    }
+
+    // Creamos un mapa de vehículos por ficha para facilitar la búsqueda
+    const vehiculosPorFicha = vehiculosData.reduce(
+      (map, vehiculo) => {
+        map[vehiculo.ficha] = vehiculo
+        return map
+      },
+      {} as Record<string, any>,
+    )
+
+    // Construimos el array de subastas con sus vehículos asociados
+    const auctions = subastasData.map((subasta) => {
+      const vehiculo = vehiculosPorFicha[subasta.ficha]
+      return {
+        id_subasta: subasta.id_subasta,
+        titulo: subasta.titulo,
+        descripcion: subasta.descripcion,
+        estado: subasta.estado || "Publicada",
+        inicio: subasta.inicio,
+        fin: subasta.fin,
+        precio_base: subasta.precio_base,
+        monto_minimo_puja: subasta.monto_minimo_puja,
+        cantidad_max_participantes: subasta.cantidad_max_participantes,
+        cantidad_participantes: subasta.cantidad_participantes,
+        ficha: subasta.ficha,
+        vehicleDetails: vehiculo
+          ? {
+              id_vehiculo: vehiculo.id_vehiculo,
+              anio: vehiculo.anio,
+              modelo: vehiculo.modelo,
+              descripcion: vehiculo.descripcion,
+              imagen_url: vehiculo.imagen_url,
+            }
+          : undefined,
+      }
+    })
+
+    console.log('Subastas ANTES de filtrar:', {
+      count: auctions.length,
+      sample: auctions[0] // Muestra la primera subasta para inspección
+    });
+
+    // Aplicar filtros si se proporcionan
+    if (filters) {
+      //return filterAuctionsByDateRange(auctions, filters)
+      const filteredAuctions = filterAuctionsByDateRange(auctions, filters);
+      console.log("Subastas filtradas:", filteredAuctions.length);
+      console.log('Subastas DESPUÉS de filtrar:', {
+        count: filteredAuctions.length,
+        sample: filteredAuctions[0] || null
+      });
+      return filteredAuctions;
+    }
+
+    return auctions
+  } catch (error: any) {
+    console.error("Error al obtener las subastas disponibles:", error?.message)
+    throw error
+  }
+}
+
+/**
+ * Obtiene todos los vehículos de la base de datos
+ * @returns {Promise<VehicleDetails[]>} Array de vehículos
+ */
+export async function fetchAllVehicles(): Promise<VehicleDetails[]> {
+  try {
+    if (!areCredentialsAvailable()) {
+      console.log("Credenciales de Supabase no disponibles, usando datos de demostración")
+      const demoAuctions = generateDemoAuctions()
+      return demoAuctions.map((auction) => auction.vehicleDetails!).filter(Boolean)
+    }
+
+    const supabase = getSupabase()
+
+    const { data: vehiculosData, error: vehiculosError } = await supabase.from("vehiculo").select("*")
+
+    if (vehiculosError) {
+      console.error("Error en la consulta a la tabla vehiculo:", vehiculosError)
+      throw new Error(`Error al obtener vehículos: ${vehiculosError.message}`)
+    }
+
+    return vehiculosData || []
+  } catch (error: any) {
+    console.error("Error al obtener vehículos:", error?.message)
+    throw error
+  }
+}
