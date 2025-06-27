@@ -16,6 +16,7 @@ import {
   type AuctionFilters,
 } from "@/lib/supabase"
 import { useAuth } from "@/hooks/use-auth"
+import { getTablaValidaciones } from "../app/api/api" // ajusta la ruta
 
 // Interfaz para el formato de datos que usa el componente (manteniendo el diseño original)
 interface Auction {
@@ -62,6 +63,15 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
   const [error, setError] = useState<string | null>(null)
 
   const { user } = useAuth()
+
+  const [validaciones, setValidaciones] = useState<null | {
+    edad_verificada: boolean
+    documentos_validados: boolean
+    reputacion_aprobada: boolean
+  }>(null)
+  const [validacionesLoading, setValidacionesLoading] = useState(true)
+
+
   const [participationLoading, setParticipationLoading] = useState<string | null>(null)
 
   // Función para manejar cambios en las fechas de filtro
@@ -197,6 +207,26 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
     loadAuctions()
   }, [])
 
+  useEffect(() => {
+  const fetchValidaciones = async () => {
+    if (!user?.id) return
+
+    try {
+      setValidacionesLoading(true)
+      const data = await getTablaValidaciones(user.id)
+      setValidaciones(data)
+    } catch (err) {
+      console.error("Error al cargar validaciones del usuario:", err)
+      setValidaciones(null)
+    } finally {
+      setValidacionesLoading(false)
+    }
+  }
+
+  fetchValidaciones()
+}, [user?.id])
+
+
   // Recargar subastas cuando cambien los filtros
   useEffect(() => {
     loadAuctions()
@@ -281,6 +311,12 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
   const handleRetry = () => {
     loadAuctions()
   }
+
+  const puedeParticipar =
+  validaciones?.edad_verificada &&
+  validaciones?.documentos_validados &&
+  validaciones?.reputacion_aprobada
+
 
   return (
     <section className="py-20">
@@ -421,8 +457,12 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
                         </Button>
                         <Button
                           onClick={() => handleParticipate(auction)}
-                          className="flex-1"
-                          disabled={participationLoading === auction.id}
+                          className={`flex-1 ${
+                            puedeParticipar
+                              ? "bg-red-600 hover:bg-red-700"
+                              : "bg-gray-400 cursor-not-allowed"
+                          }`}
+                          disabled={!puedeParticipar || participationLoading === auction.id}
                         >
                           {participationLoading === auction.id ? (
                             <>
@@ -433,6 +473,7 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
                             "Participar"
                           )}
                         </Button>
+
                       </div>
                     </CardContent>
                   </Card>

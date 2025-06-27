@@ -37,12 +37,14 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <>
-      <Suspense>
+    <html lang="es">
+      <body>
+        <Suspense>
         <ClientLayout>{children}</ClientLayout>
-      </Suspense>
-      <Analytics />
-    </>
+        </Suspense>
+        <Analytics />
+      </body>
+    </html>
   )
 }
 

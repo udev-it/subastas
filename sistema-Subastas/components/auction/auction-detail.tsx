@@ -19,6 +19,8 @@ import Image from "next/image"
 import type { Auction } from "@/lib/supabase" // Importa el tipo Auction de Supabase
 import { registerParticipation, checkParticipation } from "@/lib/supabase"
 import { useAuth } from "@/hooks/use-auth"
+import { getTablaValidaciones } from "../../app/api/api" // ajusta el path si es distinto
+
 
 /**
  * Propiedades del componente AuctionDetail
@@ -38,6 +40,14 @@ export default function AuctionDetail({ auction, onParticipate }: AuctionDetailP
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false)
   const [isAlreadyParticipatingModalOpen, setIsAlreadyParticipatingModalOpen] = useState(false)
 
+  const [validaciones, setValidaciones] = useState<null | {
+    edad_verificada: boolean
+    documentos_validados: boolean
+    reputacion_aprobada: boolean
+  }>(null)
+  const [validacionesLoading, setValidacionesLoading] = useState(true)
+
+
   useEffect(() => {
     const checkUserParticipation = async () => {
       if (user?.id && auction?.id_subasta) {
@@ -52,6 +62,26 @@ export default function AuctionDetail({ auction, onParticipate }: AuctionDetailP
 
     checkUserParticipation()
   }, [user?.id, auction?.id_subasta])
+
+  useEffect(() => {
+    const fetchValidaciones = async () => {
+      if (!user?.id) return
+
+      try {
+        setValidacionesLoading(true)
+        const data = await getTablaValidaciones(user.id)
+        setValidaciones(data)
+      } catch (err) {
+        console.error("Error al cargar validaciones:", err)
+        setValidaciones(null)
+      } finally {
+        setValidacionesLoading(false)
+      }
+    }
+
+    fetchValidaciones()
+  }, [user?.id])
+
 
   /**
    * Función auxiliar para validar y formatear números
@@ -123,6 +153,11 @@ export default function AuctionDetail({ auction, onParticipate }: AuctionDetailP
   const montoMinimoPuja = safeNumber(auction.monto_minimo_puja, 0)
   const maxParticipantes = safeNumber(auction.cantidad_max_participantes, 1)
   const anioVehiculo = safeNumber(auction.vehicleDetails?.anio, 0)
+
+  const puedeParticipar =
+  validaciones?.edad_verificada &&
+  validaciones?.documentos_validados &&
+  validaciones?.reputacion_aprobada
 
   // Renderizado del componente
   return (
@@ -287,10 +322,12 @@ export default function AuctionDetail({ auction, onParticipate }: AuctionDetailP
         <div className="p-6 border-t bg-muted/20">
           <Button
             onClick={handleParticipateClick}
-            className="w-full h-16 text-xl font-semibold"
-            variant={isParticipating ? "default" : "default"}
+            className={`w-full h-16 text-xl font-semibold ${
+              !puedeParticipar ? "bg-gray-400 cursor-not-allowed" : ""
+            }`}
+            variant="default"
             size="lg"
-            disabled={participationLoading}
+            disabled={participationLoading || !puedeParticipar}
           >
             {participationLoading ? (
               <>

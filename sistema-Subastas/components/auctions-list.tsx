@@ -1,12 +1,15 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Calendar, Clock, DollarSign, Users, AlertCircle, Car, Info } from "lucide-react"
 import Image from "next/image"
+import { getTablaValidaciones } from "../app/api/api"
+import { useAuth } from "@/hooks/use-auth"
+
 
 interface Auction {
   id: string
@@ -33,6 +36,14 @@ interface Auction {
 export default function AuctionsList() {
   const [selectedAuction, setSelectedAuction] = useState<Auction | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+
+  const [validaciones, setValidaciones] = useState<null | {
+    edad_verificada: boolean
+    documentos_validados: boolean
+    reputacion_aprobada: boolean
+  }>(null)
+  const [validacionesLoading, setValidacionesLoading] = useState(true)
+
 
   // Datos de ejemplo para las subastas
   const auctions: Auction[] = [
@@ -114,6 +125,34 @@ export default function AuctionsList() {
     console.log(`Participando en la subasta: ${auctionId}`)
     // Aquí iría la lógica para participar en la subasta
   }
+
+  const { user } = useAuth()
+
+  useEffect(() => {
+    const fetchValidaciones = async () => {
+      if (!user?.id) return
+
+      try {
+        setValidacionesLoading(true)
+        const data = await getTablaValidaciones(user.id)
+        setValidaciones(data)
+      } catch (err) {
+        console.error("Error al cargar validaciones:", err)
+        setValidaciones(null)
+      } finally {
+        setValidacionesLoading(false)
+      }
+    }
+
+    fetchValidaciones()
+  }, [user?.id])
+
+  const puedeParticipar =
+  validaciones?.edad_verificada &&
+  validaciones?.documentos_validados &&
+  validaciones?.reputacion_aprobada
+
+
 
   return (
     <section className="py-20">
@@ -310,7 +349,15 @@ export default function AuctionsList() {
               <Button variant="outline" onClick={closeModal} className="sm:order-first">
                 Cerrar
               </Button>
-              <Button onClick={() => handleParticipate(selectedAuction.id)}>Participar en la Subasta</Button>
+              <Button
+                onClick={() => handleParticipate(selectedAuction.id)}
+                className={`w-full ${
+                  puedeParticipar ? "bg-red-600 hover:bg-red-700" : "bg-gray-400 cursor-not-allowed"
+                }`}
+                disabled={!puedeParticipar}
+              >
+                Participar en la Subasta
+              </Button>
             </DialogFooter>
           </DialogContent>
         )}
