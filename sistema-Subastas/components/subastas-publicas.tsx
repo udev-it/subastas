@@ -1,9 +1,10 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Calendar, DollarSign, Users, X, Eye, Loader2, AlertCircle, RefreshCw } from "lucide-react"
@@ -19,7 +20,7 @@ interface Auction {
   startDate: string
   endDate: string
   rawStartDate: string // Formato ISO para filtrado
-  rawEndDate: string // Formato ISO para filtrado
+  rawEndDate: string   // Formato ISO para filtrado
   minimumBid: string
   participants: number
   maxParticipants: number
@@ -54,18 +55,18 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
   const [error, setError] = useState<string | null>(null)
 
   // Función para manejar cambios en las fechas de filtro
-  const handleDateChange = (type: "start" | "end", value: string) => {
-    if (type === "start" && endDateFilter && value > endDateFilter) {
-      alert("La fecha de inicio no puede ser mayor a la fecha de fin")
-      return
+  const handleDateChange = (type: 'start' | 'end', value: string) => {
+    if (type === 'start' && endDateFilter && value > endDateFilter) {
+      alert('La fecha de inicio no puede ser mayor a la fecha de fin');
+      return;
     }
-    if (type === "end" && startDateFilter && value < startDateFilter) {
-      alert("La fecha de fin no puede ser menor a la fecha de inicio")
-      return
+    if (type === 'end' && startDateFilter && value < startDateFilter) {
+      alert('La fecha de fin no puede ser menor a la fecha de inicio');
+      return;
     }
-
-    type === "start" ? setStartDateFilter(value) : setEndDateFilter(value)
-  }
+    
+    type === 'start' ? setStartDateFilter(value) : setEndDateFilter(value);
+  };
 
   /**
    * Función auxiliar para validar y formatear números
@@ -101,21 +102,21 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
     // Formatear fechas para mostrar
     const formatDateForDisplay = (isoDate: string) => {
       try {
-        if (!isoDate) return "Fecha no disponible"
-        const date = new Date(isoDate)
-        if (isNaN(date.getTime())) return "Fecha inválida"
-        return date.toLocaleDateString("es-MX", {
-          day: "2-digit",
-          month: "2-digit",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        })
+        if (!isoDate) return "Fecha no disponible";
+        const date = new Date(isoDate);
+        if (isNaN(date.getTime())) return "Fecha inválida";
+        return date.toLocaleDateString('es-MX', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
       } catch (e) {
-        console.error("Error al formatear fecha:", isoDate, e)
-        return "Fecha inválida"
+        console.error("Error al formatear fecha:", isoDate, e);
+        return "Fecha inválida";
       }
-    }
+    };
 
     return {
       id: supabaseAuction.id_subasta || "",
@@ -130,7 +131,6 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
       minimumBid: formatCurrency(montoMinimoPuja),
       participants: Participants,
       maxParticipants: maxParticipantes,
-      Participants: Participants,
       precioBase: precioBase,
       status: (supabaseAuction.estado as "Publicada" | "Activa" | "Finalizada") || "Publicada",
       vehicleDetails: {
@@ -144,44 +144,44 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
 
   //  Núcleo de la carga de datos
   const loadAuctions = async () => {
-    try {
-      setLoading(true)
-      setError(null)
+  try {
+    setLoading(true);
+    setError(null);
 
-      // Solo enviar filtros si tienen valor
-      const filters: AuctionFilters = {}
-
-      if (startDateFilter) {
-        // Asegurar formato YYYY-MM-DD
-        filters.startDate = startDateFilter
-      }
-
-      if (endDateFilter) {
-        // Asegurar formato YYYY-MM-DD
-        filters.endDate = endDateFilter
-      }
-
-      console.log("Enviando filtros:", filters)
-
-      const supabaseAuctions = await fetchAvailableAuctions(filters)
-      //console.log("Datos crudos de Supabase:", supabaseAuctions);
-      const convertedAuctions = supabaseAuctions.map(convertToDisplayFormat)
-      //console.log("Datos convertidos:", convertedAuctions);
-
-      console.log("Datos ANTES de setAuctions:", {
-        supabaseAuctions,
-        convertedAuctions,
-        filters,
-      })
-
-      setAuctions(convertedAuctions)
-    } catch (err: any) {
-      console.error("Error al cargar subastas:", err)
-      setError(err.message || "Error al cargar las subastas")
-    } finally {
-      setLoading(false)
+    // Solo enviar filtros si tienen valor
+    const filters: AuctionFilters = {};
+    
+    if (startDateFilter) {
+      // Asegurar formato YYYY-MM-DD
+      filters.startDate = startDateFilter;
     }
+    
+    if (endDateFilter) {
+      // Asegurar formato YYYY-MM-DD
+      filters.endDate = endDateFilter;
+    }
+
+    console.log('Enviando filtros:', filters);
+
+    const supabaseAuctions = await fetchAvailableAuctions(filters);
+    //console.log("Datos crudos de Supabase:", supabaseAuctions);
+    const convertedAuctions = supabaseAuctions.map(convertToDisplayFormat);
+    //console.log("Datos convertidos:", convertedAuctions);
+
+    console.log("Datos ANTES de setAuctions:", {
+      supabaseAuctions,
+      convertedAuctions,
+      filters
+    });
+    
+    setAuctions(convertedAuctions);
+  } catch (err: any) {
+    console.error("Error al cargar subastas:", err);
+    setError(err.message || "Error al cargar las subastas");
+  } finally {
+    setLoading(false);
   }
+};
 
   // Cargar subastas al montar el componente
   useEffect(() => {
@@ -190,8 +190,8 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
 
   // Recargar subastas cuando cambien los filtros
   useEffect(() => {
-    loadAuctions()
-  }, [startDateFilter, endDateFilter])
+    loadAuctions();
+  }, [startDateFilter, endDateFilter]);
 
   // Función para convertir fecha de formato DD/MM/YYYY HH:MM a Date
   const parseDate = (dateString: string): Date => {
@@ -246,7 +246,8 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
           {/* Encabezado */}
           <div className="space-y-4 text-center">
             <h2 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl">Subastas</h2>
-            <p className="mx-auto max-w-[700px] text-muted-foreground md:text-xl/relaxed lg:text-base/relaxed xl:text-xl/relaxed"></p>
+            <p className="mx-auto max-w-[700px] text-muted-foreground md:text-xl/relaxed lg:text-base/relaxed xl:text-xl/relaxed">
+            </p>
           </div>
 
           {/* Sección de filtros */}
@@ -256,22 +257,12 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
                 <h3 className="text-lg font-semibold">Filtrar Subastas</h3>
                 <div className="flex gap-2">
                   {(startDateFilter || endDateFilter) && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={clearFilters}
-                      className="flex items-center gap-2 bg-transparent"
-                    >
+                    <Button variant="outline" size="sm" onClick={clearFilters} className="flex items-center gap-2">
                       <X className="h-4 w-4" />
                       Limpiar filtros
                     </Button>
                   )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleRetry}
-                    className="flex items-center gap-2 bg-transparent"
-                  >
+                  <Button variant="outline" size="sm" onClick={handleRetry} className="flex items-center gap-2">
                     <RefreshCw className="h-4 w-4" />
                     Actualizar
                   </Button>
@@ -285,7 +276,7 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
                     id="start-date"
                     type="date"
                     value={startDateFilter}
-                    onChange={(e) => handleDateChange("start", e.target.value)}
+                    onChange={(e) => handleDateChange('start', e.target.value)}
                     placeholder="Seleccionar fecha de inicio"
                     disabled={loading}
                   />
@@ -296,7 +287,7 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
                     id="end-date"
                     type="date"
                     value={endDateFilter}
-                    onChange={(e) => handleDateChange("end", e.target.value)}
+                    onChange={(e) => handleDateChange('end', e.target.value)}
                     placeholder="Seleccionar fecha de fin"
                     disabled={loading}
                   />
@@ -388,7 +379,7 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
                   <p className="text-muted-foreground text-lg">
                     No se encontraron subastas activas que coincidan con los filtros seleccionados.
                   </p>
-                  <Button variant="outline" onClick={clearFilters} className="mt-4 bg-transparent">
+                  <Button variant="outline" onClick={clearFilters} className="mt-4">
                     Limpiar filtros
                   </Button>
                 </div>
@@ -426,4 +417,3 @@ export default function Auctions({ onParticipate, onViewDetails }: AuctionsProps
     </section>
   )
 }
-
