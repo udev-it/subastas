@@ -638,9 +638,7 @@ export async function getLatestTerms() {
   }
 }
 
-export default supabase
-
-// ==================== INTERFACES ====================
+// ==================== NUEVAS FUNCIONES PARA SUBASTAS ====================
 
 // Interfaz que define los detalles de un vehículo en una subasta.
 export interface VehicleDetails {
@@ -675,28 +673,17 @@ export interface AuctionFilters {
   endDate?: string
 }
 
-// ==================== FUNCIONES DE FILTRADO ====================
-
-/*
- * Convierte fecha de formato DD/MM/YYYY a Date
- * @param dateString - Fecha en formato DD/MM/YYYY
- * @returns Objeto Date
+/**
+ * Valida si una cadena tiene formato UUID
+ * @param str - Cadena a validar
+ * @returns true si la cadena tiene formato UUID, false en caso contrario
  */
-export function parseAuctionDate(dateString: string): Date {
-  const [day, month, year] = dateString.split("/").map(Number)
-  return new Date(year, month - 1, day)
+export function isUuid(str: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  return uuidRegex.test(str)
 }
 
 /**
- * Convierte fecha de formato YYYY-MM-DD a Date
- * @param dateString - Fecha en formato YYYY-MM-DD
- * @returns Objeto Date
- */
-export function parseInputDate(dateString: string): Date {
-  return new Date(dateString)
-}
-
-/*
  * Filtra subastas por rango de fechas
  * @param auctions - Array de subastas
  * @param filters - Filtros a aplicar
@@ -704,86 +691,133 @@ export function parseInputDate(dateString: string): Date {
  */
 export function filterAuctionsByDateRange(auctions: Auction[], filters: AuctionFilters): Auction[] {
   try {
-    if (!filters?.startDate && !filters?.endDate) return auctions;
+    if (!filters?.startDate && !filters?.endDate) return auctions
 
     // Función de normalización mejorada
     const normalizeDate = (dateStr: string): Date => {
-      const [year, month, day] = dateStr.split('-').map(Number);
-      return new Date(Date.UTC(year, month - 1, day));
-    };
+      const [year, month, day] = dateStr.split("-").map(Number)
+      return new Date(Date.UTC(year, month - 1, day))
+    }
 
     return auctions.filter((auction) => {
       try {
         // Parsear fechas de la subasta
-        const auctionStart = new Date(auction.inicio);
-        const auctionEnd = new Date(auction.fin);
+        const auctionStart = new Date(auction.inicio)
+        const auctionEnd = new Date(auction.fin)
 
         // Validar fechas
         if (isNaN(auctionStart.getTime()) || isNaN(auctionEnd.getTime())) {
-          console.warn('Fechas inválidas en subasta:', auction.inicio, auction.fin);
-          return false;
+          console.warn("Fechas inválidas en subasta:", auction.inicio, auction.fin)
+          return false
         }
 
         // Normalizar fechas de la subasta (solo día)
-        const normalizedAuctionStart = new Date(Date.UTC(
-          auctionStart.getFullYear(),
-          auctionStart.getMonth(),
-          auctionStart.getDate()
-        ));
-        
-        const normalizedAuctionEnd = new Date(Date.UTC(
-          auctionEnd.getFullYear(),
-          auctionEnd.getMonth(),
-          auctionEnd.getDate()
-        ));
+        const normalizedAuctionStart = new Date(
+          Date.UTC(auctionStart.getFullYear(), auctionStart.getMonth(), auctionStart.getDate()),
+        )
+
+        const normalizedAuctionEnd = new Date(
+          Date.UTC(auctionEnd.getFullYear(), auctionEnd.getMonth(), auctionEnd.getDate()),
+        )
 
         // Normalizar fechas de filtro
-        const normalizedFilterStart = filters.startDate 
-          ? normalizeDate(filters.startDate)
-          : null;
-          
-        const normalizedFilterEnd = filters.endDate
-          ? normalizeDate(filters.endDate)
-          : null;
+        const normalizedFilterStart = filters.startDate ? normalizeDate(filters.startDate) : null
 
-        // Depuración importante
-        console.log('Comparación:', {
-          auction: {
-            original: { inicio: auction.inicio, fin: auction.fin },
-            normalized: { 
-              start: normalizedAuctionStart.toISOString(), 
-              end: normalizedAuctionEnd.toISOString() 
-            }
-          },
-          filters: {
-            original: { start: filters.startDate, end: filters.endDate },
-            normalized: {
-              start: normalizedFilterStart?.toISOString(),
-              end: normalizedFilterEnd?.toISOString()
-            }
-          }
-        });
+        const normalizedFilterEnd = filters.endDate ? normalizeDate(filters.endDate) : null
 
         // Comparación segura
-        const startMatch = !normalizedFilterStart || 
-          normalizedAuctionStart >= normalizedFilterStart;
-          
-        const endMatch = !normalizedFilterEnd || 
-          normalizedAuctionEnd <= normalizedFilterEnd;
+        const startMatch = !normalizedFilterStart || normalizedAuctionStart >= normalizedFilterStart
 
-        return startMatch && endMatch;
+        const endMatch = !normalizedFilterEnd || normalizedAuctionEnd <= normalizedFilterEnd
+
+        return startMatch && endMatch
       } catch (error) {
-        console.error("Error filtrando subasta:", auction, error);
-        return false;
+        console.error("Error filtrando subasta:", auction, error)
+        return false
       }
-    });
+    })
   } catch (error) {
-    console.error("Error crítico en filterAuctionsByDateRange:", error);
-    return [];
+    console.error("Error crítico en filterAuctionsByDateRange:", error)
+    return []
   }
 }
 
-// ==================== FUNCIONES DE BASE DE DATOS ====================
+/**
+ * Busca una subasta en la base de datos por su ID.
+ *
+ * @param {string} auctionId - El ID de la subasta a buscar.
+ * @returns {Promise<Auction | null>} Una promesa que resuelve con los datos de la subasta si se encuentra, o null si ocurre un error.
+ */
+export async function fetchAuctionById(auctionId: string): Promise<Auction | null> {
+  try {
+    if (!isUuid(auctionId)) {
+      console.error("El ID de la subasta no es un UUID válido.")
+      return null
+    }
+
+    if (!supabase) {
+      throw new Error("Supabase client is not initialized. Check your environment variables.")
+    }
+
+    // Primero, obtenemos los datos de la subasta
+    const { data: subastaData, error: subastaError } = await supabase
+      .from("subasta")
+      .select("*")
+      .eq("id_subasta", auctionId.trim())
+      .single()
+
+    if (subastaError) {
+      console.error("Error en la consulta a la tabla subasta:", subastaError)
+      return null
+    }
+
+    if (!subastaData) {
+      console.log("No se encontró la subasta con ID:", auctionId)
+      return null
+    }
+
+    // Luego, obtenemos los datos del vehículo asociado usando el campo 'ficha'
+    const { data: vehiculoData, error: vehiculoError } = await supabase
+      .from("vehiculo")
+      .select("*")
+      .eq("ficha", subastaData.ficha)
+      .single()
+
+    if (vehiculoError && vehiculoError.code !== "PGRST116") {
+      // PGRST116 es "no se encontraron resultados", lo cual es aceptable
+      console.error("Error en la consulta a la tabla vehiculo:", vehiculoError)
+    }
+
+    // Construimos el objeto de respuesta
+    return {
+      id_subasta: subastaData.id_subasta,
+      titulo: subastaData.titulo,
+      descripcion: subastaData.descripcion,
+      estado: subastaData.estado,
+      inicio: subastaData.inicio,
+      fin: subastaData.fin,
+      precio_base: subastaData.precio_base,
+      monto_minimo_puja: subastaData.monto_minimo_puja,
+      cantidad_max_pujas: subastaData.cantidad_max_pujas,
+      cantidad_max_participantes: subastaData.cantidad_max_participantes,
+      cantidad_participantes: subastaData.cantidad_participantes,
+      ficha: subastaData.ficha,
+      vehicleDetails: vehiculoData
+        ? {
+            id_vehiculo: vehiculoData.id_vehiculo,
+            anio: vehiculoData.anio,
+            modelo: vehiculoData.modelo,
+            descripcion: vehiculoData.descripcion,
+            ficha: vehiculoData.ficha,
+            imagen_url: vehiculoData.imagen_url,
+          }
+        : undefined,
+    }
+  } catch (error: any) {
+    console.error("Error al buscar la subasta:", error?.message)
+    return null
+  }
+}
 
 /**
  * Obtiene todas las subastas activas de la base de datos de Supabase.
@@ -793,42 +827,37 @@ export function filterAuctionsByDateRange(auctions: Auction[], filters: AuctionF
  */
 export async function fetchAvailableAuctions(filters?: AuctionFilters): Promise<Auction[]> {
   try {
-    const supabase = getSupabase();
+    if (!supabase) {
+      throw new Error("Supabase client is not initialized. Check your environment variables.")
+    }
 
-    let query = supabase
-      .from("subasta")
-      .select("*")
-      .or("estado.eq.Publicada,estado.eq.publicada");
+    let query = supabase.from("subasta").select("*").or("estado.eq.Publicada,estado.eq.publicada")
 
     // Aplicar filtros
     if (filters?.startDate) {
-      const startDate = new Date(filters.startDate);
-      const startDateStr = startDate.toISOString().split('T')[0];
+      const startDate = new Date(filters.startDate)
+      const startDateStr = startDate.toISOString().split("T")[0]
       // Usamos gte para inicio del día y lt para inicio del día siguiente
-      query = query
-        .gte('inicio', `${startDateStr}T00:00:00`)
-        .lt('inicio', `${startDateStr}T23:59:59.999`);
+      query = query.gte("inicio", `${startDateStr}T00:00:00`).lt("inicio", `${startDateStr}T23:59:59.999`)
     }
 
     if (filters?.endDate) {
-      const endDate = new Date(filters.endDate);
-      const endDateStr = endDate.toISOString().split('T')[0];
+      const endDate = new Date(filters.endDate)
+      const endDateStr = endDate.toISOString().split("T")[0]
       // Usamos gte para inicio del día y lt para inicio del día siguiente
-      query = query
-        .gte('fin', `${endDateStr}T00:00:00`)
-        .lt('fin', `${endDateStr}T23:59:59.999`);
+      query = query.gte("fin", `${endDateStr}T00:00:00`).lt("fin", `${endDateStr}T23:59:59.999`)
     }
 
-    console.log('Filtros aplicados:', {
+    console.log("Filtros aplicados:", {
       startDate: filters?.startDate,
-      endDate: filters?.endDate
-    });
+      endDate: filters?.endDate,
+    })
 
-    query = query.order("inicio", { ascending: false });
+    query = query.order("inicio", { ascending: false })
 
-    const { data: subastasData, error: subastasError } = await query;
-    console.log("Datos crudos de subast:", subastasData)
-    
+    const { data: subastasData, error: subastasError } = await query
+    console.log("Datos crudos de subasta:", subastasData)
+
     if (subastasError) {
       console.error("Error en la consulta a la tabla subasta:", subastasError)
       throw new Error(`Error al obtener subastas: ${subastasError.message}`)
@@ -839,7 +868,7 @@ export async function fetchAvailableAuctions(filters?: AuctionFilters): Promise<
       return []
     }
 
-    console.log(`Se encontraron ${subastasData.length} subastas publicads`)
+    console.log(`Se encontraron ${subastasData.length} subastas publicadas`)
 
     // Obtenemos las fichas de las subastas para buscar los vehículos asociados
     const fichas = subastasData.map((subasta) => subasta.ficha).filter((ficha) => ficha) // Filtrar fichas nulas o undefined
@@ -882,6 +911,7 @@ export async function fetchAvailableAuctions(filters?: AuctionFilters): Promise<
         fin: subasta.fin,
         precio_base: subasta.precio_base,
         monto_minimo_puja: subasta.monto_minimo_puja,
+        cantidad_max_pujas: subasta.cantidad_max_pujas,
         cantidad_max_participantes: subasta.cantidad_max_participantes,
         cantidad_participantes: subasta.cantidad_participantes,
         ficha: subasta.ficha,
@@ -891,27 +921,27 @@ export async function fetchAvailableAuctions(filters?: AuctionFilters): Promise<
               anio: vehiculo.anio,
               modelo: vehiculo.modelo,
               descripcion: vehiculo.descripcion,
+              ficha: vehiculo.ficha,
               imagen_url: vehiculo.imagen_url,
             }
           : undefined,
       }
     })
 
-    console.log('Subastas ANTES de filtrar:', {
+    console.log("Subastas ANTES de filtrar:", {
       count: auctions.length,
-      sample: auctions[0] // Muestra la primera subasta para inspección
-    });
+      sample: auctions[0], // Muestra la primera subasta para inspección
+    })
 
     // Aplicar filtros si se proporcionan
     if (filters) {
-      //return filterAuctionsByDateRange(auctions, filters)
-      const filteredAuctions = filterAuctionsByDateRange(auctions, filters);
-      console.log("Subastas filtradas:", filteredAuctions.length);
-      console.log('Subastas DESPUÉS de filtrar:', {
+      const filteredAuctions = filterAuctionsByDateRange(auctions, filters)
+      console.log("Subastas filtradas:", filteredAuctions.length)
+      console.log("Subastas DESPUÉS de filtrar:", {
         count: filteredAuctions.length,
-        sample: filteredAuctions[0] || null
-      });
-      return filteredAuctions;
+        sample: filteredAuctions[0] || null,
+      })
+      return filteredAuctions
     }
 
     return auctions
@@ -927,13 +957,9 @@ export async function fetchAvailableAuctions(filters?: AuctionFilters): Promise<
  */
 export async function fetchAllVehicles(): Promise<VehicleDetails[]> {
   try {
-    if (!areCredentialsAvailable()) {
-      console.log("Credenciales de Supabase no disponibles, usando datos de demostración")
-      const demoAuctions = generateDemoAuctions()
-      return demoAuctions.map((auction) => auction.vehicleDetails!).filter(Boolean)
+    if (!supabase) {
+      throw new Error("Supabase client is not initialized. Check your environment variables.")
     }
-
-    const supabase = getSupabase()
 
     const { data: vehiculosData, error: vehiculosError } = await supabase.from("vehiculo").select("*")
 
@@ -948,3 +974,5 @@ export async function fetchAllVehicles(): Promise<VehicleDetails[]> {
     throw error
   }
 }
+
+export default supabase

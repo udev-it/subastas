@@ -1,3 +1,5 @@
+"use client"
+
 /**
  * Componente AuctionDetail
  *
@@ -7,8 +9,6 @@
  * @author ZAGOOM
  * @version 1.0
  */
-
-"use client"
 
 // Importaciones necesarias
 import { useState } from "react"
@@ -45,7 +45,7 @@ export default function AuctionDetail({ auction, onParticipate }: AuctionDetailP
    */
   const formatCurrency = (value: any): string => {
     const num = safeNumber(value, 0)
-    return `$${num.toLocaleString("es-MX")}`
+    return `$${num.toLocaleString("es-MX")}`;
   }
 
   /**
@@ -77,8 +77,7 @@ export default function AuctionDetail({ auction, onParticipate }: AuctionDetailP
           <div>
             <h1 className="text-3xl font-bold text-foreground mb-2">{auction.titulo || "Subasta sin título"}</h1>
           </div>
-          <div className="flex items-center gap-2">
-          </div>
+          <div className="flex items-center gap-2"></div>
         </div>
       </div>
 
